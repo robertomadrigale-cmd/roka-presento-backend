@@ -1,0 +1,39 @@
+{
+  "summary": "Ran comprehensive pytest suite (21 tests) against Presento FastAPI backend via public REACT_APP_BACKEND_URL. Seeded test users/sessions directly in MongoDB for auth-gated tests. All 21 tests PASSED (root, auth, extract files/url, LLM validate with fake keys, presentations CRUD, HTML+PPTX export, Unsplash image generation).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/images/generate (source=unsplash)", "issue": "Uses source.unsplash.com which Unsplash officially deprecated in 2023. Endpoint currently returns a URL string (no outbound call), but the returned URL may not resolve to a real image in production, affecting downstream PPTX image embedding."},
+      {"endpoint": "/api/auth/session", "issue": "On existing user login, inserts a new user_sessions doc each call without upserting/cleaning up old sessions -> unbounded growth. Consider upsert or TTL index on expires_at."},
+      {"endpoint": "/api/presentations/{pid} PUT", "issue": "Accepts arbitrary dict body without Pydantic validation; silently allows writing extra unknown fields (only _id/user_id/presentation_id are stripped). Minor schema-safety concern."},
+      {"endpoint": "/api/extract/files", "issue": "No per-file or total size limit; a large upload could exhaust memory (reads entire file into RAM)."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Consider replacing deprecated source.unsplash.com with Unsplash API (needs UNSPLASH_ACCESS_KEY) or Pexels/Pixabay stock source.",
+    "Add TTL index on user_sessions.expires_at and/or upsert by user_id to prevent unbounded session doc growth.",
+    "Add Pydantic model for presentation PUT body instead of raw dict.",
+    "Add an upload size limit (e.g., 20MB per file) on /api/extract/files."
+  ],
+  "critical_code_review_comments": [
+    "server.py is ~790 lines - borderline; consider splitting into routers (auth, extract, llm, images, presentations, export) for maintainability.",
+    "Synchronous httpx.get() call inside build_pptx (line ~669) blocks the event loop during PPTX export; should use async httpx or run build_pptx in a thread.",
+    "CORS allow_origins defaults to '*' while allow_credentials=True - this combination is rejected by browsers; for prod, set explicit origins in CORS_ORIGINS env.",
+    "user_sessions lacks TTL index; expired sessions are never cleaned up automatically.",
+    "Anthropic model hardcoded 'claude-haiku-4-5' in /llm/validate - if user's key doesn't have access to that model, validation may falsely fail.",
+    "No rate limiting on /llm/validate, /extract/url, /images/generate - abuse vectors.",
+    "/extract/url does not restrict schemes or block private IPs -> SSRF risk (e.g., http://169.254.169.254 metadata, http://localhost:8001)."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100%", "frontend": "not tested (skipped per request)"},
+  "test_credentials": "No real credentials needed. Test user+session seeded directly in MongoDB (user_id=user_TEST_*, session_token=TEST_token_*) and cleaned up after run.",
+  "seed_data_creation": "Session-scoped pytest fixture creates one TEST_ user + session in MongoDB and deletes them plus all TEST presentations on teardown.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend test suite at /app/backend/tests/backend_test.py covers 21 cases across all backend endpoints except /presentations/generate and /presentations/regenerate-slide (both require real LLM keys - only tested auth-gate on generate). PPTX zip header (PK) and HTML export verified. When retesting, reuse the seeded_user fixture pattern. SSRF in /extract/url is a potential issue worth exploring."
+}
