@@ -1,0 +1,97 @@
+{
+  "theme": "Light",
+  "archetype": "Archetype 4: Swiss & High-Contrast",
+  "mood": "Confident, editorial, asymmetric, brutalist but refined, modern SaaS.",
+  "colors": {
+    "background": "#FFFFFF",
+    "foreground": "#000000",
+    "surface": "#F4F4F5",
+    "border": "#000000",
+    "primary": "#002BFF",
+    "primary_foreground": "#FFFFFF",
+    "accent_red": "#FF3B30",
+    "muted": "#FAFAFA",
+    "muted_foreground": "#71717A"
+  },
+  "typography": {
+    "heading_font": "Clash Display, sans-serif",
+    "body_font": "IBM Plex Sans, sans-serif",
+    "font_imports": [
+      "@import url('https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&display=swap');",
+      "@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');"
+    ],
+    "hierarchy": {
+      "h1": "text-5xl sm:text-6xl font-semibold tracking-tighter uppercase",
+      "h2": "text-3xl sm:text-4xl font-medium tracking-tight",
+      "h3": "text-xl sm:text-2xl font-medium tracking-tight",
+      "body": "text-base leading-relaxed font-normal",
+      "overline": "text-xs font-semibold tracking-[0.2em] uppercase"
+    }
+  },
+  "spacing_and_layout": {
+    "philosophy": "Generous spacing. Overlapping and bento grids. Asymmetry.",
+    "container_padding": "p-8 md:p-12",
+    "border_radius": "rounded-none",
+    "border_style": "border border-black",
+    "shadows": "No soft shadows. Use sharp 1px borders or solid drop shadows (e.g. shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] for CTAs)."
+  },
+  "components": {
+    "buttons": "Square edges, high contrast. Primary: bg-[#002BFF] text-white hover:bg-black hover:text-white transition-colors. Secondary: bg-transparent border border-black text-black hover:bg-black hover:text-white.",
+    "cards": "border border-black bg-white p-6 rounded-none",
+    "inputs": "border border-black bg-white rounded-none focus:ring-0 focus:border-[#002BFF] focus:outline-none focus:ring-2 focus:ring-[#002BFF]/20",
+    "modals": "border border-black bg-white rounded-none p-8"
+  },
+  "interactions": {
+    "hover": "Invert colors or solid background shifts.",
+    "transitions": "transition-all duration-200 ease-out"
+  },
+  "pages": {
+    "landing": {
+      "layout": "Asymmetric bento grid hero, large typography spanning multiple columns, stark white background with black grid lines.",
+      "hero_image_behavior": "Placed within a structural border. Overlay with grain."
+    },
+    "dashboard": {
+      "layout": "Control Room Grid. Strict grid hierarchy, dense and compact. Sidebar with black border separating from main content."
+    },
+    "editor": {
+      "layout": "3-pane layout. Left: Thumbnails (border-r). Center: Main Canvas (grey bg). Right: AI Settings & Prompt (border-l)."
+    }
+  },
+  "media": {
+    "images": [
+      {
+        "category": "hero_abstract",
+        "url": "https://images.unsplash.com/photo-1760238209114-29f51d879d5e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTN8MHwxfHNlYXJjaHwzfHxhYnN0cmFjdCUyMGFyY2hpdGVjdHVyZSUyMGdlb21ldHJ5JTIwaGlnaCUyMGNvbnRyYXN0fGVufDB8fHx8MTc3NzA1NTQxN3ww&ixlib=rb-4.1.0&q=85",
+        "description": "Geometric light patterns cast on dark floor"
+      },
+      {
+        "category": "slide_bg_1",
+        "url": "https://images.unsplash.com/photo-1773609688655-a6786b363d2a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTN8MHwxfHNlYXJjaHwyfHxhYnN0cmFjdCUyMGFyY2hpdGVjdHVyZSUyMGdlb21ldHJ5JTIwaGlnaCUyMGNvbnRyYXN0fGVufDB8fHx8MTc3NzA1NTQxN3ww&ixlib=rb-4.1.0&q=85",
+        "description": "Abstract geometric shapes"
+      },
+      {
+        "category": "slide_bg_2",
+        "url": "https://static.prod-images.emergentagent.com/jobs/65e5b133-b85d-4b47-8e7c-3357dad4189d/images/e6852cc3c616c44ca3f967a8b00d827a49c76763b94d00be4da5ae6cff46e0d5.png",
+        "description": "Off-white and pale grey overlapping paper sheets, sharp edges"
+      },
+      {
+        "category": "slide_bg_3",
+        "url": "https://static.prod-images.emergentagent.com/jobs/65e5b133-b85d-4b47-8e7c-3357dad4189d/images/ed65d56980435557b7c97e5b9aa9d102592e4d1c28570632d69db4b04b6df91f.png",
+        "description": "Dark mode abstract background, deep obsidian black, Klein Blue accent"
+      }
+    ]
+  },
+  "icons": {
+    "library": "lucide-react",
+    "stroke_width": "1.5"
+  },
+  "instructions_to_main_agent": [
+    "Strictly follow the color palette: White background, Black borders, #002BFF primary buttons.",
+    "Do NOT use rounded corners anywhere. Use rounded-none.",
+    "Use data-testid on all interactive elements using kebab-case role-based names (e.g., login-button, new-presentation-card).",
+    "All text MUST be in Spanish.",
+    "Include the font imports for Clash Display and IBM Plex Sans in index.css.",
+    "For the presentation editor, structure it with a left sidebar for thumbnails, a center canvas, and a right sidebar for AI generation settings (provider selection: Anthropic, Gemini, OpenAI, model, and API key input).",
+    "Make the layout asymmetric and editorial, especially on the landing page."
+  ]
+}
