@@ -251,7 +251,8 @@ def test_images_generate_unsplash(seeded_user):
     assert r.status_code == 200
     d = r.json()
     assert "url" in d
-    assert "unsplash" in d["url"]
+    # After the fix, source=unsplash returns a loremflickr URL (deprecation replacement)
+    assert "loremflickr.com" in d["url"]
 
 
 def test_images_generate_invalid_source(seeded_user):
@@ -259,3 +260,161 @@ def test_images_generate_invalid_source(seeded_user):
                       json={"prompt": "x", "source": "invalid"},
                       headers=auth_h(seeded_user["token"]))
     assert r.status_code == 400
+
+
+# ---------- NEW: Bug fix verification tests ----------
+
+# Bug #1: Slide model must accept title=None and normalize to empty string
+def test_slide_builds_with_null_fields():
+    """Direct unit test: Slide(title=None,...) should no longer raise pydantic ValidationError.
+
+    Also verifies the normalization used in presentations_generate:
+    (s.get("title") or "") converts None -> "".
+    """
+    import sys
+    sys.path.insert(0, "/app/backend")
+    from server import Slide  # type: ignore
+
+    # Title Optional[str] -> None should be accepted
+    s = Slide(layout="section", title=None, subtitle=None, body=None, bullets=[], notes=None)
+    assert s.title is None or s.title == ""
+    assert s.layout == "section"
+
+    # Simulate the normalization done in the endpoint when LLM returns null values
+    raw = {"layout": "section", "title": None, "subtitle": None,
+           "bullets": None, "body": None, "image_prompt": None, "notes": None}
+    s2 = Slide(
+        layout=(raw.get("layout") or "content"),
+        title=(raw.get("title") or ""),
+        subtitle=(raw.get("subtitle") or ""),
+        bullets=[str(b) for b in (raw.get("bullets") or []) if b],
+        body=(raw.get("body") or ""),
+        image_prompt=(raw.get("image_prompt") or ""),
+        notes=(raw.get("notes") or ""),
+    )
+    assert s2.title == ""
+    assert s2.subtitle == ""
+    assert s2.body == ""
+    assert s2.bullets == []
+    assert s2.layout == "section"
+
+    # Model should also serialize cleanly (no ValidationError)
+    dumped = s2.model_dump()
+    assert dumped["title"] == ""
+    assert isinstance(dumped["id"], str) and len(dumped["id"]) > 0
+
+
+# Bug #2: Unsplash replaced with loremflickr - verify URL resolves to a real image
+def test_unsplash_returns_valid_image(seeded_user):
+    """Verify /api/images/generate source=unsplash now returns a loremflickr URL
+    that resolves (HTTP 200 via redirects) and returns actual image bytes."""
+    r = requests.post(
+        f"{API}/images/generate",
+        json={"prompt": "mountain landscape sunrise", "source": "unsplash"},
+        headers=auth_h(seeded_user["token"]),
+    )
+    assert r.status_code == 200
+    d = r.json()
+    assert "url" in d
+    url = d["url"]
+    # Should no longer be the deprecated source.unsplash.com
+    assert "source.unsplash.com" not in url
+    # Should be loremflickr (the documented replacement)
+    assert "loremflickr.com" in url, f"Expected loremflickr URL, got: {url}"
+
+    # Fetch the URL and confirm it returns an image
+    img = requests.get(url, timeout=20, allow_redirects=True)
+    assert img.status_code == 200, f"Image URL returned {img.status_code}: {url}"
+    ctype = img.headers.get("Content-Type", "")
+    assert ctype.startswith("image/"), f"Expected image content-type, got {ctype}"
+    assert len(img.content) > 1000, "Image content suspiciously small"
+
+
+# Bug #1 integration: generate endpoint should not 500 on the parsing/Slide path.
+# Without real LLM keys we can't get a 200, but we can assert we never get a 500
+# caused by a pydantic ValidationError when slides contain null titles.
+def test_generate_endpoint_does_not_500_on_llm_failure(seeded_user):
+    """With a fake LLM key, endpoint should fail cleanly at the LLM call (502),
+    never 500 from Slide construction. Covers the auth-gate path up to run_llm."""
+    r = requests.post(
+        f"{API}/presentations/generate",
+        headers=auth_h(seeded_user["token"]),
+        json={
+            "title": "Test",
+            "content": "Contenido de prueba con datos. La empresa creció 42%.",
+            "num_slides": 6,
+            "language": "es",
+            "llm": {"provider": "anthropic", "model": "claude-haiku-4-5", "api_key": "sk-ant-fake-xxx"},
+            "image_source": "none",
+        },
+        timeout=30,
+    )
+    # Must NOT be 500 (which would indicate a ValidationError / unhandled crash)
+    assert r.status_code != 500, f"Endpoint returned 500 (unhandled): {r.text[:300]}"
+    # Expect 502 (LLM call failed cleanly) or 401 (if auth flaked) - both acceptable
+    assert r.status_code in (401, 502), f"Unexpected status {r.status_code}: {r.text[:200]}"
+
+
+# Bug #1 integration via monkeypatched LLM: verifies the full slide-building path
+# handles LLM output with title=null, bullets=null, body=null without crashing.
+def test_generate_handles_null_slide_fields_via_monkeypatch(seeded_user, monkeypatch, mongo):
+    """Monkeypatch run_llm to return JSON with null title/bullets/body;
+    verify endpoint returns 200 with normalized empty strings."""
+    import sys
+    sys.path.insert(0, "/app/backend")
+    import server  # type: ignore
+    from fastapi.testclient import TestClient
+    import json as _json
+
+    fake_payload = {
+        "title": "Deck de Prueba",
+        "description": "subtitulo",
+        "slides": [
+            {"layout": "title", "title": "Hola", "subtitle": "2026",
+             "bullets": [], "body": "", "image_prompt": None, "notes": None},
+            # Section slide with null title/bullets/body (the bug case)
+            {"layout": "section", "title": None, "subtitle": None,
+             "bullets": None, "body": None, "image_prompt": None, "notes": None},
+            {"layout": "content", "title": "Datos", "bullets": ["Bullet 1", "Bullet 2"],
+             "body": None, "image_prompt": "editorial photo", "notes": "notas"},
+        ],
+    }
+
+    async def fake_run_llm(cfg, system, user):
+        return _json.dumps(fake_payload)
+
+    monkeypatch.setattr(server, "run_llm", fake_run_llm)
+
+    client = TestClient(server.app)
+    # Seed auth via Bearer using the existing seeded_user token (already in mongo)
+    r = client.post(
+        "/api/presentations/generate",
+        headers={"Authorization": f"Bearer {seeded_user['token']}"},
+        json={
+            "title": "x",
+            "content": "contenido",
+            "num_slides": 3,
+            "language": "es",
+            "llm": {"provider": "anthropic", "model": "m", "api_key": "k"},
+            "image_source": "none",
+        },
+    )
+    assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text[:300]}"
+    data = r.json()
+    assert "presentation_id" in data
+    assert data["title"] == "Deck de Prueba"
+    assert isinstance(data["slides"], list) and len(data["slides"]) == 3
+
+    # The section slide with null fields must have been normalized
+    section = data["slides"][1]
+    assert section["layout"] == "section"
+    assert section["title"] == ""     # null -> ""
+    assert section["subtitle"] == ""  # null -> ""
+    assert section["body"] == ""      # null -> ""
+    assert section["bullets"] == []   # null -> []
+
+    # Verify persistence
+    saved = mongo.presentations.find_one({"presentation_id": data["presentation_id"]})
+    assert saved is not None
+    # Cleanup
+    mongo.presentations.delete_one({"presentation_id": data["presentation_id"]})

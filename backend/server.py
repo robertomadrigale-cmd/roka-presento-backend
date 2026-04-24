@@ -51,7 +51,7 @@ class User(BaseModel):
 class Slide(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     layout: str = "content"   # title | content | two-column | image-right | quote | section
-    title: str = ""
+    title: Optional[str] = ""
     subtitle: Optional[str] = ""
     bullets: List[str] = []
     body: Optional[str] = ""
@@ -343,13 +343,15 @@ async def validate_llm_key(req: ValidateKeyRequest):
 
 # ============================== IMAGE GENERATION ==============================
 
-UNSPLASH_BASE = "https://source.unsplash.com/1200x675/?"
-
 async def fetch_unsplash(prompt: str) -> str:
-    # Use the open Unsplash source (redirect) as a no-key option
+    """Fetch a stock image using LoremFlickr (no API key required, reliable)."""
     q = re.sub(r"[^a-zA-Z0-9 ,-]", " ", prompt)
-    q = "+".join([w for w in q.split() if w][:5]) or "abstract"
-    return f"{UNSPLASH_BASE}{q}"
+    words = [w for w in q.split() if len(w) > 2][:4] or ["abstract"]
+    tag = ",".join(words)
+    # LoremFlickr returns a real Flickr image matching the tags, 1200x675 landscape
+    # Add a deterministic lock per prompt to avoid random switching
+    lock = abs(hash(prompt)) % 10000
+    return f"https://loremflickr.com/1200/675/{tag}/all?lock={lock}"
 
 async def gen_image_openai(api_key: str, prompt: str) -> str:
     from openai import AsyncOpenAI
@@ -475,14 +477,16 @@ CONTENIDO DEL USUARIO:
 
     slides: List[Slide] = []
     for s in data.get("slides", []):
+        if not isinstance(s, dict):
+            continue
         slides.append(Slide(
-            layout=s.get("layout", "content"),
-            title=s.get("title", ""),
-            subtitle=s.get("subtitle", ""),
-            bullets=s.get("bullets", []) or [],
-            body=s.get("body", ""),
-            image_prompt=s.get("image_prompt", ""),
-            notes=s.get("notes", ""),
+            layout=(s.get("layout") or "content"),
+            title=(s.get("title") or ""),
+            subtitle=(s.get("subtitle") or ""),
+            bullets=[str(b) for b in (s.get("bullets") or []) if b],
+            body=(s.get("body") or ""),
+            image_prompt=(s.get("image_prompt") or ""),
+            notes=(s.get("notes") or ""),
         ))
 
     # fetch images in parallel
