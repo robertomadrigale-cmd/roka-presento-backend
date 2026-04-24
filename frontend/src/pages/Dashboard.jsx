@@ -6,6 +6,10 @@ import AIKeyModal from "../components/AIKeyModal";
 import { Button } from "../components/ui/button";
 import { toast } from "sonner";
 import { Plus, FileText, Trash2, Sparkles, ArrowRight } from "lucide-react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
+} from "../components/ui/alert-dialog";
 
 export default function Dashboard() {
   const nav = useNavigate();
