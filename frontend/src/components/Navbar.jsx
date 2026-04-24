@@ -2,43 +2,53 @@ import React from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { Button } from "./ui/button";
+import { Settings, Sparkles, LogOut } from "lucide-react";
 
 export default function Navbar({ onOpenSettings }) {
   const { user, logout } = useAuth();
   const nav = useNavigate();
 
   return (
-    <header className="border-b border-black bg-white sticky top-0 z-40" data-testid="app-navbar">
-      <div className="flex items-center justify-between px-6 md:px-10 h-16">
+    <header className="sticky top-0 z-40 glass border-b border-neutral-200/70" data-testid="app-navbar">
+      <div className="flex items-center justify-between px-6 md:px-8 h-14">
         <div
-          className="flex items-center gap-3 cursor-pointer"
+          className="flex items-center gap-2.5 cursor-pointer group"
           onClick={() => nav(user ? "/dashboard" : "/")}
           data-testid="navbar-logo"
         >
-          <div className="w-8 h-8 border border-black bg-[#002BFF]"></div>
-          <span className="font-display font-semibold text-xl tracking-tight">PRESENTO</span>
-          <span className="overline text-[#71717A] hidden md:inline">IA · SLIDES</span>
+          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-600 to-violet-600 flex items-center justify-center text-white shadow-sm group-hover:scale-105 transition-transform">
+            <Sparkles size={14} strokeWidth={2.5} />
+          </div>
+          <span className="font-display text-[17px] tracking-tight">Presento</span>
         </div>
-        <nav className="flex items-center gap-2 md:gap-4">
+        <nav className="flex items-center gap-1.5">
           {onOpenSettings && (
             <Button
-              variant="outline"
+              variant="ghost"
+              size="sm"
               onClick={onOpenSettings}
-              className="border-black rounded-none font-mono text-xs"
+              className="rounded-lg gap-2 text-neutral-700 hover:text-neutral-900"
               data-testid="navbar-ai-settings"
             >
-              ⚙ IA
+              <Settings size={15} strokeWidth={1.75} />
+              <span className="hidden md:inline text-sm">Configurar IA</span>
             </Button>
           )}
           {user ? (
             <>
-              <span className="hidden md:inline font-mono text-xs">{user.email}</span>
+              <div className="hidden md:flex items-center gap-2 pl-3 mr-1 border-l border-neutral-200">
+                {user.picture && <img src={user.picture} alt="" className="w-7 h-7 rounded-full" />}
+                <span className="text-sm text-neutral-700 max-w-[160px] truncate">{user.email}</span>
+              </div>
               <Button
                 onClick={logout}
-                className="bg-black text-white rounded-none hover:bg-[#002BFF]"
+                variant="ghost"
+                size="sm"
+                className="rounded-lg text-neutral-700 hover:text-red-600 gap-2"
                 data-testid="navbar-logout"
               >
-                Cerrar sesión
+                <LogOut size={15} strokeWidth={1.75} />
+                <span className="hidden md:inline text-sm">Salir</span>
               </Button>
             </>
           ) : (
@@ -48,10 +58,11 @@ export default function Navbar({ onOpenSettings }) {
                 const redirectUrl = window.location.origin + "/dashboard";
                 window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
               }}
-              className="bg-[#002BFF] text-white rounded-none hover:bg-black"
+              size="sm"
+              className="rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white text-sm soft-shadow"
               data-testid="navbar-login"
             >
-              Iniciar sesión →
+              Iniciar sesión
             </Button>
           )}
         </nav>

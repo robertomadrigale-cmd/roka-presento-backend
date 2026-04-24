@@ -5,6 +5,7 @@ import Navbar from "../components/Navbar";
 import AIKeyModal from "../components/AIKeyModal";
 import { Button } from "../components/ui/button";
 import { toast } from "sonner";
+import { Plus, FileText, Trash2, Sparkles, ArrowRight } from "lucide-react";
 
 export default function Dashboard() {
   const nav = useNavigate();
@@ -18,9 +19,7 @@ export default function Dashboard() {
       setItems(data);
     } catch (e) {
       toast.error("No se pudieron cargar las presentaciones");
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   useEffect(() => { load(); }, []);
@@ -33,84 +32,84 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-neutral-50/50">
       <Navbar onOpenSettings={() => setSettings(true)} />
-      <div className="grid grid-cols-12 min-h-[calc(100vh-4rem)]">
-        {/* Sidebar */}
-        <aside className="col-span-12 md:col-span-3 border-b md:border-b-0 md:border-r border-black p-6 md:p-8 bg-[#FAFAFA]">
-          <div className="overline text-black/50">Panel</div>
+      <main className="max-w-6xl mx-auto px-6 py-10">
+        <div className="flex items-end justify-between mb-8 fade-up">
+          <div>
+            <div className="text-xs font-medium text-neutral-500 uppercase tracking-wider mb-1">Biblioteca</div>
+            <h1 className="font-display text-4xl md:text-5xl tracking-[-0.03em]">Tus presentaciones</h1>
+          </div>
           <Button
             onClick={() => nav("/create")}
-            className="w-full bg-[#002BFF] text-white rounded-none hover:bg-black h-14 mt-4 shadow-[4px_4px_0_0_rgba(0,0,0,1)] hover:shadow-[1px_1px_0_0_rgba(0,0,0,1)] transition-all"
+            size="lg"
+            className="rounded-xl bg-neutral-900 hover:bg-neutral-800 text-white soft-shadow gap-2"
             data-testid="btn-new-presentation"
           >
-            + Nueva presentación
+            <Plus size={16} /> Nueva presentación
           </Button>
-          <div className="mt-8 space-y-1 font-mono text-xs">
-            <div className="flex justify-between border-b border-black/20 py-2"><span>Total</span><span>{items.length.toString().padStart(2, "0")}</span></div>
-            <div className="flex justify-between border-b border-black/20 py-2"><span>Formato</span><span>PPTX / HTML</span></div>
-          </div>
-        </aside>
+        </div>
 
-        {/* Main */}
-        <main className="col-span-12 md:col-span-9 p-6 md:p-10">
-          <div className="flex items-end justify-between mb-8">
-            <div>
-              <div className="overline text-black/50">Biblioteca</div>
-              <h1 className="font-display text-4xl md:text-5xl tracking-tight mt-1">Tus presentaciones</h1>
-            </div>
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {[1,2,3].map((i) => (
+              <div key={i} className="aspect-[16/10] rounded-xl shimmer"></div>
+            ))}
           </div>
-
-          {loading ? (
-            <div className="font-mono text-sm">Cargando…</div>
-          ) : items.length === 0 ? (
-            <div className="border border-black p-12 text-center" data-testid="empty-state">
-              <div className="font-display text-3xl mb-3">Aún no hay nada aquí.</div>
-              <p className="text-black/60 mb-6">Crea tu primera presentación a partir de cualquier documento.</p>
-              <Button onClick={() => nav("/create")} className="bg-black text-white rounded-none hover:bg-[#002BFF]" data-testid="empty-cta">
-                Comenzar
-              </Button>
+        ) : items.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-neutral-300 bg-white p-16 text-center fade-up" data-testid="empty-state">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-blue-600 to-violet-600 flex items-center justify-center text-white mb-5 soft-shadow-lg">
+              <Sparkles size={20} />
             </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-0 border border-black">
-              {items.map((p, i) => (
+            <div className="font-display text-2xl tracking-tight mb-2">Aún no hay nada aquí.</div>
+            <p className="text-sm text-neutral-500 mb-6 max-w-sm mx-auto">
+              Crea tu primera presentación a partir de cualquier documento, enlace o texto.
+            </p>
+            <Button onClick={() => nav("/create")} className="rounded-xl bg-neutral-900 hover:bg-neutral-800 text-white soft-shadow gap-2" data-testid="empty-cta">
+              Crear primera presentación <ArrowRight size={15} />
+            </Button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {items.map((p) => (
+              <div
+                key={p.presentation_id}
+                className="group relative rounded-2xl border border-neutral-200 bg-white overflow-hidden hover:soft-shadow-lg hover:-translate-y-0.5 transition-all cursor-pointer fade-up"
+                onClick={() => nav(`/editor/${p.presentation_id}`)}
+                data-testid={`presentation-card-${p.presentation_id}`}
+              >
                 <div
-                  key={p.presentation_id}
-                  className="border-r border-b border-black last:border-r-0 p-5 cursor-pointer group hover:bg-[#FAFAFA] transition-colors relative"
-                  onClick={() => nav(`/editor/${p.presentation_id}`)}
-                  data-testid={`presentation-card-${p.presentation_id}`}
+                  className="aspect-[16/10] relative overflow-hidden"
+                  style={{ background: p.background_color || "#fff" }}
                 >
-                  <div
-                    className="aspect-[16/9] border border-black relative overflow-hidden mb-3"
-                    style={{ background: p.background_color || "#fff" }}
-                  >
-                    <div className="absolute left-0 top-0 h-full w-1.5" style={{ background: p.primary_color }}></div>
-                    <div className="p-3">
-                      <div className="font-display text-sm font-semibold leading-tight line-clamp-3" style={{ color: p.text_color }}>
-                        {p.title}
-                      </div>
+                  <div className="absolute left-0 top-0 h-full w-1" style={{ background: p.primary_color }}></div>
+                  <div className="p-5 h-full flex flex-col">
+                    <div className="text-[10px] font-mono tracking-widest uppercase mb-auto" style={{ color: p.primary_color, opacity: 0.8 }}>
+                      {new Date(p.created_at).toLocaleDateString("es", { month: "short", year: "numeric" }).toUpperCase()}
                     </div>
-                    <div className="absolute right-2 bottom-2 font-mono text-[9px]" style={{ color: p.primary_color }}>
-                      {String(p.slides?.length || 0).padStart(2, "0")} SLIDES
+                    <div className="font-display font-semibold leading-tight line-clamp-3 text-lg" style={{ color: p.text_color }}>
+                      {p.title}
                     </div>
                   </div>
-                  <div className="font-display text-lg leading-tight truncate">{p.title}</div>
-                  <div className="font-mono text-[10px] text-black/50 mt-1">
-                    {new Date(p.created_at).toLocaleDateString("es", { day: "2-digit", month: "short", year: "numeric" })}
+                </div>
+                <div className="p-4 flex items-center justify-between border-t border-neutral-100">
+                  <div className="flex items-center gap-2 text-xs text-neutral-500">
+                    <FileText size={13} />
+                    {p.slides?.length || 0} slides
                   </div>
                   <button
                     onClick={(e) => { e.stopPropagation(); remove(p.presentation_id); }}
-                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-xs font-mono border border-black bg-white px-2 py-1 hover:bg-[#FF3B30] hover:text-white transition-all"
+                    className="opacity-0 group-hover:opacity-100 w-7 h-7 rounded-md flex items-center justify-center text-neutral-400 hover:text-red-600 hover:bg-red-50 transition-all"
                     data-testid={`delete-${p.presentation_id}`}
                   >
-                    ✕
+                    <Trash2 size={13} />
                   </button>
                 </div>
-              ))}
-            </div>
-          )}
-        </main>
-      </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </main>
       <AIKeyModal open={settings} onOpenChange={setSettings} />
     </div>
   );

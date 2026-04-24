@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import { Button } from "../components/ui/button";
 import AIKeyModal from "../components/AIKeyModal";
+import { ArrowRight, FileText, Wand2, Download, Sparkles, Check, Zap, Shield, Palette } from "lucide-react";
 
 export default function Landing() {
   const nav = useNavigate();
@@ -18,113 +19,215 @@ export default function Landing() {
     <div className="min-h-screen bg-white">
       <Navbar onOpenSettings={() => setSettingsOpen(true)} />
 
-      {/* HERO — bento asymmetric */}
-      <section className="border-b border-black">
-        <div className="grid grid-cols-12 grid-rows-[auto] border-b border-black">
-          <div className="col-span-12 md:col-span-8 border-r-0 md:border-r border-black p-8 md:p-14 min-h-[520px] flex flex-col justify-between">
-            <div className="overline text-black/60 fade-up">001 · IA · ANTHROPIC · GEMINI · OPENAI</div>
+      {/* HERO */}
+      <section className="relative overflow-hidden bg-radial">
+        <div className="absolute inset-0 bg-grid opacity-60 pointer-events-none"></div>
+        <div className="relative max-w-6xl mx-auto px-6 pt-20 pb-24 md:pt-28 md:pb-32 text-center">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-neutral-200 soft-shadow text-xs text-neutral-600 mb-8 fade-up">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+            Presento · Con Claude, Gemini y GPT
+          </div>
+
+          <h1 className="font-display text-5xl sm:text-6xl md:text-7xl lg:text-8xl tracking-[-0.04em] leading-[0.95] fade-up-delay-1">
+            Presentaciones<br/>
+            <span className="bg-gradient-to-r from-blue-600 via-violet-600 to-fuchsia-600 bg-clip-text text-transparent">
+              que te dejan sin palabras.
+            </span>
+          </h1>
+
+          <p className="mt-8 max-w-2xl mx-auto text-lg md:text-xl text-neutral-600 leading-relaxed fade-up-delay-2">
+            Sube un PDF, pega notas o enlaza una URL. Nuestra IA entiende tu contenido y genera un deck completo
+            — narrativa, slides, imágenes y diseño — listo para exportar.
+          </p>
+
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mt-10 fade-up-delay-3">
+            <Button
+              onClick={login}
+              size="lg"
+              className="rounded-xl bg-neutral-900 hover:bg-neutral-800 text-white h-12 px-6 text-base soft-shadow-lg gap-2 group"
+              data-testid="hero-cta-login"
+            >
+              Comenzar gratis
+              <ArrowRight size={17} className="group-hover:translate-x-0.5 transition-transform" />
+            </Button>
+            <Button
+              onClick={() => setSettingsOpen(true)}
+              variant="outline"
+              size="lg"
+              className="rounded-xl h-12 px-6 text-base border-neutral-200 hover:bg-neutral-50"
+              data-testid="hero-cta-settings"
+            >
+              Conectar mi IA
+            </Button>
+          </div>
+
+          <div className="mt-6 flex items-center justify-center gap-5 text-xs text-neutral-500">
+            <span className="flex items-center gap-1.5"><Check size={12} className="text-green-600" /> Trae tu propia clave</span>
+            <span className="flex items-center gap-1.5"><Check size={12} className="text-green-600" /> 100% en tu navegador</span>
+            <span className="hidden md:flex items-center gap-1.5"><Check size={12} className="text-green-600" /> Exporta a PPTX + HTML</span>
+          </div>
+        </div>
+
+        {/* Hero preview */}
+        <div className="relative max-w-5xl mx-auto px-6 pb-20">
+          <div className="relative rounded-2xl overflow-hidden border border-neutral-200 soft-shadow-lg bg-white fade-up-delay-3">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-neutral-100 bg-neutral-50/50">
+              <div className="flex gap-1.5">
+                <div className="w-3 h-3 rounded-full bg-red-400"></div>
+                <div className="w-3 h-3 rounded-full bg-yellow-400"></div>
+                <div className="w-3 h-3 rounded-full bg-green-400"></div>
+              </div>
+              <div className="ml-3 font-mono text-xs text-neutral-400">presento.app/editor</div>
+            </div>
+            <div className="grid grid-cols-[180px_1fr_200px] h-[400px]">
+              <div className="border-r border-neutral-100 p-3 space-y-2 bg-neutral-50/40 overflow-hidden">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <div key={i} className={`aspect-[16/9] rounded-md border ${i === 2 ? "border-blue-600 ring-2 ring-blue-100" : "border-neutral-200"} bg-white p-2`}>
+                    <div className="h-1 w-12 bg-neutral-300 rounded-sm"></div>
+                    <div className="h-1 w-16 bg-neutral-200 rounded-sm mt-1"></div>
+                  </div>
+                ))}
+              </div>
+              <div className="p-8 bg-neutral-50/30 flex items-center justify-center">
+                <div className="w-full aspect-[16/9] rounded-xl bg-white border border-neutral-200 soft-shadow p-8 flex flex-col justify-center">
+                  <div className="text-xs font-mono text-blue-600 tracking-widest uppercase mb-3">Q4 · Resultados</div>
+                  <div className="font-display text-3xl font-semibold tracking-tight leading-tight">Duplicamos ingresos<br/>en 7 meses.</div>
+                  <div className="mt-6 space-y-2">
+                    <div className="flex gap-2 items-center text-sm"><div className="w-1.5 h-1.5 rounded-full bg-blue-600"></div>Crecimiento mensual del 18% sostenido</div>
+                    <div className="flex gap-2 items-center text-sm"><div className="w-1.5 h-1.5 rounded-full bg-blue-600"></div>ARR pasó de $1.2M a $2.8M USD</div>
+                    <div className="flex gap-2 items-center text-sm"><div className="w-1.5 h-1.5 rounded-full bg-blue-600"></div>NPS subió de 42 a 67 puntos</div>
+                  </div>
+                </div>
+              </div>
+              <div className="border-l border-neutral-100 p-3 bg-white">
+                <div className="text-[10px] font-medium text-neutral-500 uppercase tracking-wide mb-2">Modelo</div>
+                <div className="p-2 rounded-md bg-neutral-50 border border-neutral-200 font-mono text-[11px]">claude-sonnet-4-5</div>
+                <div className="text-[10px] font-medium text-neutral-500 uppercase tracking-wide mb-2 mt-4">Tema</div>
+                <div className="grid grid-cols-4 gap-1">
+                  {["#2563EB", "#16A34A", "#DB2777", "#171717"].map((c) => (
+                    <div key={c} className="aspect-square rounded-md border border-neutral-200" style={{ background: c }}></div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Steps */}
+      <section className="border-t border-neutral-100 py-20 md:py-24">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-14">
+            <div className="text-xs font-medium text-blue-600 uppercase tracking-wider mb-3">Cómo funciona</div>
+            <h2 className="font-display text-4xl md:text-5xl tracking-tight">De documento a deck en 3 pasos.</h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[
+              { icon: FileText, t: "Sube información", d: "PDF, Word, Excel, imágenes, URLs… cualquier cosa. Extraemos el texto y lo entendemos." },
+              { icon: Wand2, t: "La IA estructura", d: "Elige tu modelo (Claude, Gemini o GPT). La IA crea narrativa, bullets, imágenes y diseño." },
+              { icon: Download, t: "Exporta al instante", d: "Descarga PPTX editable o comparte un HTML interactivo público." },
+            ].map((s, i) => {
+              const Icon = s.icon;
+              return (
+                <div key={i} className="p-6 rounded-2xl border border-neutral-200 bg-white soft-shadow hover:soft-shadow-lg transition-all fade-up">
+                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-600 to-violet-600 flex items-center justify-center text-white mb-4">
+                    <Icon size={18} strokeWidth={2} />
+                  </div>
+                  <div className="text-xs font-mono text-neutral-400 mb-1">0{i + 1}</div>
+                  <div className="font-display text-xl font-semibold tracking-tight">{s.t}</div>
+                  <p className="mt-2 text-sm text-neutral-600 leading-relaxed">{s.d}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* Features */}
+      <section className="border-t border-neutral-100 py-20 md:py-24 bg-neutral-50/50">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="grid md:grid-cols-2 gap-12 items-center">
             <div>
-              <h1 className="font-display font-semibold uppercase leading-[0.9] tracking-tighter text-5xl sm:text-6xl md:text-7xl lg:text-8xl fade-up">
-                Presentaciones<br/>hechas con<br/><span className="text-[#002BFF]">inteligencia</span>.
-              </h1>
-              <p className="mt-8 md:mt-10 max-w-xl text-lg leading-relaxed text-black/80 fade-up">
-                Sube cualquier documento, pega un texto o enlaza una URL. Presento convierte tu información en diapositivas listas para exportar a <span className="font-mono">PowerPoint</span> o <span className="font-mono">HTML</span>, con imágenes y diseño automático.
+              <div className="text-xs font-medium text-blue-600 uppercase tracking-wider mb-3">Trae tu IA</div>
+              <h2 className="font-display text-4xl md:text-5xl tracking-tight leading-tight">
+                Tu clave.<br/>
+                Tu modelo.<br/>
+                <span className="text-neutral-400">Tu presentación.</span>
+              </h2>
+              <p className="mt-6 text-neutral-600 leading-relaxed text-lg">
+                Escribe manualmente cualquier modelo de Anthropic, OpenAI o Gemini — incluso los que salieron ayer.
+                Tus claves nunca salen del navegador.
               </p>
-              <div className="flex flex-wrap items-center gap-3 mt-8 fade-up">
-                <Button
-                  onClick={login}
-                  className="bg-[#002BFF] text-white rounded-none hover:bg-black h-14 px-8 text-base shadow-[6px_6px_0_0_rgba(0,0,0,1)] hover:shadow-[2px_2px_0_0_rgba(0,0,0,1)] transition-all"
-                  data-testid="hero-cta-login"
-                >
-                  Comenzar con Google →
-                </Button>
-                <Button
-                  onClick={() => setSettingsOpen(true)}
-                  variant="outline"
-                  className="border-black rounded-none h-14 px-6 text-base"
-                  data-testid="hero-cta-settings"
-                >
-                  Configurar IA
-                </Button>
+              <div className="mt-8 space-y-3">
+                {[
+                  [Zap, "Input libre de modelo", "Escribe gpt-5.2, claude-opus-4-5, gemini-3-pro… lo que sea."],
+                  [Shield, "Privacidad primero", "Las claves viven en localStorage. Nosotros no las vemos."],
+                  [Palette, "8 plantillas + color libre", "De Swiss a Midnight. Y tú eliges el color exacto."],
+                ].map(([I, t, d], i) => (
+                  <div key={i} className="flex gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-white border border-neutral-200 flex items-center justify-center text-neutral-700 shrink-0 soft-shadow">
+                      <I size={15} />
+                    </div>
+                    <div>
+                      <div className="font-medium text-sm">{t}</div>
+                      <div className="text-xs text-neutral-500">{d}</div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
-            <div className="overline text-black/40 mt-6">Tus claves API nunca salen de tu navegador.</div>
-          </div>
 
-          <div className="col-span-12 md:col-span-4 grid grid-rows-3 border-t md:border-t-0 border-black">
-            <div className="border-b border-black p-6 bg-[#002BFF] text-white flex flex-col justify-between">
-              <div className="overline">002 · Formatos</div>
-              <div className="font-display text-3xl md:text-4xl leading-none">PDF · DOCX<br/>XLSX · CSV<br/>MD · TXT · URL</div>
-            </div>
-            <div className="border-b border-black p-6 flex flex-col justify-between">
-              <div className="overline text-black/50">003 · Modelos</div>
-              <div className="font-display text-2xl md:text-3xl leading-none">Claude · Gemini · GPT</div>
-            </div>
-            <div className="p-6 flex flex-col justify-between bg-black text-white">
-              <div className="overline text-white/60">004 · Exporta</div>
-              <div className="font-display text-3xl md:text-4xl leading-none">.PPTX<br/>.HTML</div>
-            </div>
-          </div>
-        </div>
-
-        {/* ticker */}
-        <div className="overflow-hidden border-b border-black">
-          <div className="flex whitespace-nowrap animate-marquee py-3">
-            {Array.from({ length: 2 }).map((_, i) => (
-              <div key={i} className="flex shrink-0 gap-10 px-10 font-mono text-sm">
-                <span>◆ DISEÑO SWISS</span>
-                <span>◆ BRUTALIST</span>
-                <span>◆ 8 PLANTILLAS</span>
-                <span>◆ COLOR PERSONALIZADO</span>
-                <span>◆ IMÁGENES IA / UNSPLASH</span>
-                <span>◆ MULTI-IDIOMA</span>
-                <span>◆ MULTI-LLM</span>
-                <span>◆ BYOK · TRAE TU PROPIA CLAVE</span>
+            <div className="relative">
+              <div className="rounded-2xl bg-white border border-neutral-200 soft-shadow-lg p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <Sparkles size={14} className="text-blue-600" />
+                  <span className="font-medium text-sm">Conecta tu IA</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 mb-4">
+                  {["Anthropic", "OpenAI", "Gemini"].map((p, i) => (
+                    <div key={p} className={`p-3 rounded-xl border text-left ${i === 0 ? "border-blue-600 bg-blue-50 ring-2 ring-blue-600/10" : "border-neutral-200"}`}>
+                      <div className="w-6 h-6 rounded-md bg-neutral-900 text-white flex items-center justify-center text-xs font-semibold">{p[0]}</div>
+                      <div className="text-xs font-medium mt-1.5">{p}</div>
+                    </div>
+                  ))}
+                </div>
+                <label className="text-[10px] font-medium text-neutral-500 uppercase block mb-1">Modelo</label>
+                <div className="rounded-lg border border-neutral-200 p-2.5 font-mono text-sm text-neutral-800 bg-neutral-50/50">claude-sonnet-4-5</div>
+                <label className="text-[10px] font-medium text-neutral-500 uppercase block mb-1 mt-3">API Key</label>
+                <div className="rounded-lg border border-neutral-200 p-2.5 font-mono text-sm text-neutral-400 bg-neutral-50/50">sk-ant-api03-••••••••••••</div>
+                <button className="w-full mt-4 py-2 rounded-lg bg-neutral-900 text-white text-sm font-medium">Guardar</button>
               </div>
-            ))}
+              <div className="absolute -top-4 -right-4 w-20 h-20 bg-gradient-to-br from-blue-600/30 to-violet-600/30 rounded-full blur-2xl -z-10"></div>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* STEPS */}
-      <section className="grid grid-cols-1 md:grid-cols-3 border-b border-black">
-        {[
-          ["01", "Sube información", "PDFs, Word, Excel, imágenes, URLs… lo que tengas. Presento extrae el texto y lo entiende."],
-          ["02", "Elige tu IA", "Trae tu propia clave de Anthropic, Gemini u OpenAI. Tú controlas el modelo y el costo."],
-          ["03", "Exporta en segundos", "Descarga un .pptx editable o publica una versión HTML interactiva."],
-        ].map(([n, t, d], i) => (
-          <div key={n} className={`p-8 md:p-12 ${i < 2 ? "border-b md:border-b-0 md:border-r border-black" : ""}`}>
-            <div className="font-mono text-xs text-black/40 tracking-[0.3em]">{n}</div>
-            <div className="font-display text-3xl md:text-4xl mt-2 tracking-tight">{t}</div>
-            <p className="mt-4 text-black/70 leading-relaxed">{d}</p>
-          </div>
-        ))}
-      </section>
-
-      {/* SHOWCASE */}
-      <section className="p-8 md:p-14 border-b border-black bg-[#FAFAFA]">
-        <div className="overline text-black/50">005 · Resultado</div>
-        <h2 className="font-display text-4xl md:text-6xl tracking-tight mt-2 mb-10">Slides con alma editorial.</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {[
-            { t: "La era del trabajo asistido", sub: "Informe Q2", bg: "#FFFFFF", fg: "#000", p: "#002BFF" },
-            { t: "Datos que sí importan", sub: "Analytics", bg: "#0A0A0A", fg: "#FAFAFA", p: "#FF3B30" },
-            { t: "Cómo ganamos 2026", sub: "Roadmap", bg: "#FDF6E3", fg: "#1C1917", p: "#C2410C" },
-          ].map((c, i) => (
-            <div key={i} className="border border-black aspect-[16/9] p-6 relative" style={{ background: c.bg, color: c.fg }}>
-              <div className="absolute left-0 top-0 bottom-0 w-2" style={{ background: c.p }}></div>
-              <div className="h-full flex flex-col justify-between">
-                <div className="overline" style={{ color: c.p }}>{c.sub}</div>
-                <div className="font-display text-2xl md:text-3xl leading-tight font-semibold">{c.t}</div>
-              </div>
-            </div>
-          ))}
+      {/* CTA */}
+      <section className="border-t border-neutral-100 py-20 md:py-28">
+        <div className="max-w-3xl mx-auto px-6 text-center">
+          <h2 className="font-display text-4xl md:text-6xl tracking-tight leading-[1.05]">
+            Tu próxima presentación,<br/>en 60 segundos.
+          </h2>
+          <Button
+            onClick={login}
+            size="lg"
+            className="mt-8 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-white h-13 px-8 text-base soft-shadow-lg gap-2"
+            data-testid="cta-bottom-login"
+          >
+            Comenzar con Google <ArrowRight size={17} />
+          </Button>
         </div>
       </section>
 
-      <footer className="p-8 md:p-12 flex flex-col md:flex-row justify-between gap-4 items-start md:items-end">
-        <div className="font-display text-3xl md:text-4xl tracking-tight">PRESENTO<span className="text-[#002BFF]">.</span></div>
-        <div className="font-mono text-xs text-black/60">© 2026 — Hecho con IA en todas partes.</div>
+      <footer className="border-t border-neutral-100 py-8">
+        <div className="max-w-6xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-2 text-xs text-neutral-500">
+          <div className="flex items-center gap-2">
+            <div className="w-5 h-5 rounded-md bg-gradient-to-br from-blue-600 to-violet-600"></div>
+            <span className="font-display font-semibold text-sm text-neutral-900">Presento</span>
+          </div>
+          <div className="font-mono">© 2026</div>
+        </div>
       </footer>
 
       <AIKeyModal open={settingsOpen} onOpenChange={setSettingsOpen} />

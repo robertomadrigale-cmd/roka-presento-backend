@@ -10,6 +10,7 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { loadLLM } from "../lib/aiStorage";
 import { toast } from "sonner";
+import { ArrowLeft, Save, Download, ExternalLink, Plus, Trash2, Sparkles, Loader2, Wand2 } from "lucide-react";
 
 export default function Editor() {
   const { id } = useParams();
@@ -32,9 +33,9 @@ export default function Editor() {
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
 
   if (!pres) return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-neutral-50/50">
       <Navbar onOpenSettings={() => setSettings(true)} />
-      <div className="p-10 font-mono text-sm">Cargando…</div>
+      <div className="p-10 flex items-center gap-2 text-sm text-neutral-500"><Loader2 size={15} className="animate-spin" /> Cargando…</div>
     </div>
   );
 
@@ -66,9 +67,7 @@ export default function Editor() {
       toast.success("Guardado");
     } catch (e) {
       toast.error("Error guardando");
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   };
 
   const regenerate = async () => {
@@ -90,13 +89,12 @@ export default function Editor() {
       toast.success("Slide regenerada");
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Error IA");
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   };
 
   const deleteSlide = () => {
     if (pres.slides.length <= 1) return toast.error("Debe haber al menos una slide");
+    if (!window.confirm("¿Eliminar esta slide?")) return;
     const slides = pres.slides.filter((_, i) => i !== active);
     setPres({ ...pres, slides });
     setActive(Math.max(0, active - 1));
@@ -118,109 +116,148 @@ export default function Editor() {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-white overflow-hidden">
+    <div className="h-screen flex flex-col bg-neutral-100 overflow-hidden">
       <Navbar onOpenSettings={() => setSettings(true)} />
 
       {/* Toolbar */}
-      <div className="border-b border-black flex items-center justify-between px-6 py-3 bg-[#FAFAFA]">
-        <input
-          value={pres.title}
-          onChange={(e) => setPres({ ...pres, title: e.target.value })}
-          className="font-display text-xl bg-transparent border-0 outline-none focus:bg-white focus:border focus:border-black focus:px-2"
-          data-testid="editor-title"
-        />
-        <div className="flex gap-2">
-          <Button onClick={saveAll} variant="outline" disabled={busy} className="border-black rounded-none text-xs font-mono" data-testid="btn-save">{busy ? "..." : "Guardar"}</Button>
-          <Button onClick={previewHTML} variant="outline" className="border-black rounded-none text-xs font-mono" data-testid="btn-preview-html">Ver HTML</Button>
-          <Button onClick={exportPPTX} className="bg-[#002BFF] text-white rounded-none hover:bg-black text-xs font-mono" data-testid="btn-export-pptx">↓ PPTX</Button>
+      <div className="border-b border-neutral-200 glass flex items-center justify-between px-4 md:px-6 py-2.5">
+        <div className="flex items-center gap-3 min-w-0">
+          <button onClick={() => nav("/dashboard")} className="text-neutral-500 hover:text-neutral-900 transition-colors" data-testid="btn-editor-back">
+            <ArrowLeft size={16} />
+          </button>
+          <input
+            value={pres.title}
+            onChange={(e) => setPres({ ...pres, title: e.target.value })}
+            className="font-display text-lg bg-transparent border-0 outline-none focus:ring-2 focus:ring-blue-600/30 rounded-md px-2 py-0.5 tracking-tight min-w-0 truncate"
+            data-testid="editor-title"
+          />
+        </div>
+        <div className="flex gap-1.5">
+          <Button onClick={saveAll} variant="ghost" size="sm" disabled={busy} className="rounded-lg text-sm gap-1.5" data-testid="btn-save">
+            {busy ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Guardar
+          </Button>
+          <Button onClick={previewHTML} variant="outline" size="sm" className="rounded-lg text-sm gap-1.5 border-neutral-200" data-testid="btn-preview-html">
+            <ExternalLink size={14} /> Ver HTML
+          </Button>
+          <Button onClick={exportPPTX} size="sm" className="rounded-lg text-sm gap-1.5 bg-neutral-900 hover:bg-neutral-800 text-white soft-shadow" data-testid="btn-export-pptx">
+            <Download size={14} /> PPTX
+          </Button>
         </div>
       </div>
 
       {/* 3-pane */}
-      <div className="flex-1 grid grid-cols-[220px_1fr_340px] overflow-hidden">
+      <div className="flex-1 grid grid-cols-[230px_1fr_340px] overflow-hidden">
         {/* Thumbnails */}
-        <aside className="border-r border-black overflow-y-auto p-3 bg-white" data-testid="thumbnails-pane">
+        <aside className="border-r border-neutral-200 overflow-y-auto p-3 bg-white" data-testid="thumbnails-pane">
           {pres.slides.map((s, i) => (
             <div
               key={s.id}
               onClick={() => setActive(i)}
-              className={`mb-2 cursor-pointer border ${i === active ? "border-[#002BFF] border-2" : "border-black/30"}`}
+              className={`mb-2 cursor-pointer rounded-lg p-1 transition-all ${i === active ? "bg-blue-50 ring-2 ring-blue-600" : "hover:bg-neutral-50"}`}
               data-testid={`thumb-${i}`}
             >
               <div className="relative">
-                <div className="absolute top-1 left-2 font-mono text-[9px] z-10" style={{ color: theme.primary_color }}>{String(i + 1).padStart(2, "0")}</div>
-                <SlideCanvas slide={{ ...s, index: i }} theme={theme} small />
+                <div className="absolute -left-0.5 top-0.5 font-mono text-[9px] text-neutral-400 z-10 bg-white px-1 rounded-sm">{String(i + 1).padStart(2, "0")}</div>
+                <SlideCanvas slide={{ ...s, index: i, total: pres.slides.length }} theme={theme} small />
               </div>
             </div>
           ))}
-          <Button onClick={addSlide} variant="outline" className="w-full border-black rounded-none text-xs font-mono mt-2" data-testid="btn-add-slide">+ Nueva slide</Button>
+          <Button onClick={addSlide} variant="outline" size="sm" className="w-full rounded-lg mt-2 gap-1.5 border-dashed border-neutral-300 text-neutral-600 text-xs" data-testid="btn-add-slide">
+            <Plus size={13} /> Nueva slide
+          </Button>
         </aside>
 
         {/* Canvas */}
-        <main className="bg-[#F4F4F5] overflow-y-auto p-8 flex items-center justify-center" data-testid="canvas-pane">
+        <main className="bg-neutral-100 overflow-y-auto p-8 flex items-center justify-center" data-testid="canvas-pane">
           <div className="w-full max-w-5xl">
-            <SlideCanvas slide={{ ...current, index: active }} theme={theme} />
-            <div className="flex justify-between mt-4 font-mono text-xs">
-              <span>{active + 1} / {pres.slides.length} · {current.layout}</span>
-              <button onClick={deleteSlide} className="text-[#FF3B30] hover:underline" data-testid="btn-delete-slide">Eliminar slide</button>
+            <SlideCanvas slide={{ ...current, index: active, total: pres.slides.length }} theme={theme} />
+            <div className="flex justify-between items-center mt-4 text-xs">
+              <span className="font-mono text-neutral-500">
+                Slide {active + 1} de {pres.slides.length} · <span className="text-neutral-900">{current.layout}</span>
+              </span>
+              <button onClick={deleteSlide} className="flex items-center gap-1.5 text-neutral-500 hover:text-red-600 transition-colors" data-testid="btn-delete-slide">
+                <Trash2 size={12} /> Eliminar
+              </button>
             </div>
           </div>
         </main>
 
-        {/* Right panel */}
-        <aside className="border-l border-black overflow-y-auto bg-white" data-testid="inspector-pane">
-          <div className="border-b border-black p-4">
-            <div className="overline">Edición</div>
-            <Label className="font-mono text-[10px] mt-3 block">LAYOUT</Label>
-            <select value={current.layout} onChange={(e) => updateSlide({ layout: e.target.value })} className="w-full border border-black bg-white p-1.5 font-mono text-xs mt-1" data-testid="select-layout">
-              {["title", "content", "two-column", "image-right", "quote", "section"].map((l) => <option key={l} value={l}>{l}</option>)}
-            </select>
-            <Label className="font-mono text-[10px] mt-3 block">TÍTULO</Label>
-            <Input value={current.title} onChange={(e) => updateSlide({ title: e.target.value })} className="border-black rounded-none mt-1 text-sm" />
-            <Label className="font-mono text-[10px] mt-3 block">SUBTÍTULO</Label>
-            <Input value={current.subtitle || ""} onChange={(e) => updateSlide({ subtitle: e.target.value })} className="border-black rounded-none mt-1 text-sm" />
-            <Label className="font-mono text-[10px] mt-3 block">BULLETS (uno por línea)</Label>
-            <Textarea
-              value={(current.bullets || []).join("\n")}
-              onChange={(e) => updateSlide({ bullets: e.target.value.split("\n").filter(Boolean) })}
-              rows={5}
-              className="border-black rounded-none mt-1 text-sm font-mono"
-            />
-            <Label className="font-mono text-[10px] mt-3 block">CUERPO</Label>
-            <Textarea value={current.body || ""} onChange={(e) => updateSlide({ body: e.target.value })} rows={3} className="border-black rounded-none mt-1 text-sm" />
-            <Label className="font-mono text-[10px] mt-3 block">IMAGEN (URL)</Label>
-            <Input value={current.image_url || ""} onChange={(e) => updateSlide({ image_url: e.target.value })} className="border-black rounded-none mt-1 text-sm" placeholder="https://…" />
-          </div>
-
-          <div className="p-4 border-b border-black bg-[#FAFAFA]">
-            <div className="overline">Regenerar con IA</div>
+        {/* Inspector */}
+        <aside className="border-l border-neutral-200 overflow-y-auto bg-white" data-testid="inspector-pane">
+          {/* Regenerate */}
+          <div className="p-4 border-b border-neutral-100 bg-gradient-to-br from-blue-50 to-violet-50">
+            <div className="flex items-center gap-2 mb-2">
+              <Wand2 size={14} className="text-blue-600" />
+              <span className="text-sm font-medium">Regenerar con IA</span>
+            </div>
             <Textarea
               value={regenInstr}
               onChange={(e) => setRegenInstr(e.target.value)}
               rows={3}
-              placeholder="Ej: hazlo más conciso, enfócate en resultados…"
-              className="border-black rounded-none mt-2 text-sm"
+              placeholder="Ej: hazlo más conciso, enfócate en resultados, agrega una cita…"
+              className="rounded-lg border-neutral-200 text-sm bg-white"
               data-testid="input-regen-instruction"
             />
             <Button
               onClick={regenerate}
               disabled={busy}
-              className="w-full bg-black text-white rounded-none hover:bg-[#002BFF] mt-2 text-xs font-mono"
+              size="sm"
+              className="w-full rounded-lg mt-2 bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-700 hover:to-violet-700 text-white gap-1.5 soft-shadow"
               data-testid="btn-regenerate"
             >
-              {busy ? "Regenerando…" : "✨ Regenerar slide"}
+              <Sparkles size={13} />
+              {busy ? "Regenerando…" : "Regenerar"}
             </Button>
           </div>
 
+          {/* Edit */}
+          <div className="p-4 space-y-3 border-b border-neutral-100">
+            <div className="text-[10px] font-medium uppercase text-neutral-500 tracking-wide">Edición</div>
+            <div>
+              <Label className="text-[10px] text-neutral-500 font-medium">LAYOUT</Label>
+              <select value={current.layout} onChange={(e) => updateSlide({ layout: e.target.value })} className="w-full rounded-lg border border-neutral-200 px-2 py-1.5 mt-1 text-sm" data-testid="select-layout">
+                {["title", "content", "two-column", "image-right", "quote", "section"].map((l) => <option key={l} value={l}>{l}</option>)}
+              </select>
+            </div>
+            <div>
+              <Label className="text-[10px] text-neutral-500 font-medium">TÍTULO</Label>
+              <Input value={current.title} onChange={(e) => updateSlide({ title: e.target.value })} className="rounded-lg border-neutral-200 mt-1 text-sm" />
+            </div>
+            <div>
+              <Label className="text-[10px] text-neutral-500 font-medium">SUBTÍTULO</Label>
+              <Input value={current.subtitle || ""} onChange={(e) => updateSlide({ subtitle: e.target.value })} className="rounded-lg border-neutral-200 mt-1 text-sm" />
+            </div>
+            <div>
+              <Label className="text-[10px] text-neutral-500 font-medium">BULLETS <span className="text-neutral-400 normal-case">(uno por línea)</span></Label>
+              <Textarea
+                value={(current.bullets || []).join("\n")}
+                onChange={(e) => updateSlide({ bullets: e.target.value.split("\n").filter(Boolean) })}
+                rows={5}
+                className="rounded-lg border-neutral-200 mt-1 text-sm font-mono"
+              />
+            </div>
+            <div>
+              <Label className="text-[10px] text-neutral-500 font-medium">CUERPO</Label>
+              <Textarea value={current.body || ""} onChange={(e) => updateSlide({ body: e.target.value })} rows={3} className="rounded-lg border-neutral-200 mt-1 text-sm" />
+            </div>
+            <div>
+              <Label className="text-[10px] text-neutral-500 font-medium">IMAGEN (URL)</Label>
+              <Input value={current.image_url || ""} onChange={(e) => updateSlide({ image_url: e.target.value })} className="rounded-lg border-neutral-200 mt-1 text-sm" placeholder="https://…" />
+            </div>
+          </div>
+
+          {/* Theme */}
           <div className="p-4">
-            <div className="overline mb-2">Tema</div>
-            {[["primary_color", "Primario"], ["background_color", "Fondo"], ["text_color", "Texto"]].map(([k, l]) => (
-              <label key={k} className="flex items-center gap-3 mb-2 text-xs font-mono">
-                <input type="color" value={pres[k]} onChange={(e) => setPres({ ...pres, [k]: e.target.value })} className="w-8 h-8 border border-black" data-testid={`theme-${k}`} />
-                <span>{l}</span>
-                <span className="ml-auto">{pres[k]}</span>
-              </label>
-            ))}
+            <div className="text-[10px] font-medium uppercase text-neutral-500 tracking-wide mb-2">Tema</div>
+            <div className="space-y-2">
+              {[["primary_color", "Primario"], ["background_color", "Fondo"], ["text_color", "Texto"], ["accent_color", "Acento"]].map(([k, l]) => (
+                <div key={k} className="flex items-center gap-2">
+                  <input type="color" value={pres[k]} onChange={(e) => setPres({ ...pres, [k]: e.target.value })} className="w-8 h-8 rounded-md border border-neutral-200 cursor-pointer" data-testid={`theme-${k}`} />
+                  <span className="text-xs flex-1">{l}</span>
+                  <span className="text-[10px] font-mono text-neutral-500">{pres[k]}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </aside>
       </div>
