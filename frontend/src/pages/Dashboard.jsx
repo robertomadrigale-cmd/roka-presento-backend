@@ -12,6 +12,7 @@ export default function Dashboard() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
 
   const load = async () => {
     try {
@@ -25,10 +26,13 @@ export default function Dashboard() {
   useEffect(() => { load(); }, []);
 
   const remove = async (id) => {
-    if (!window.confirm("¿Eliminar presentación?")) return;
-    await api.delete(`/presentations/${id}`);
-    setItems((xs) => xs.filter((x) => x.presentation_id !== id));
-    toast.success("Eliminada");
+    try {
+      await api.delete(`/presentations/${id}`);
+      setItems((xs) => xs.filter((x) => x.presentation_id !== id));
+      toast.success("Presentación eliminada");
+    } catch (e) {
+      toast.error("No se pudo eliminar: " + (e?.response?.data?.detail || e.message));
+    }
   };
 
   return (
@@ -98,7 +102,7 @@ export default function Dashboard() {
                     {p.slides?.length || 0} slides
                   </div>
                   <button
-                    onClick={(e) => { e.stopPropagation(); remove(p.presentation_id); }}
+                    onClick={(e) => { e.stopPropagation(); setDeleteTarget(p); }}
                     className="opacity-0 group-hover:opacity-100 w-7 h-7 rounded-md flex items-center justify-center text-neutral-400 hover:text-red-600 hover:bg-red-50 transition-all"
                     data-testid={`delete-${p.presentation_id}`}
                   >
@@ -111,6 +115,27 @@ export default function Dashboard() {
         )}
       </main>
       <AIKeyModal open={settings} onOpenChange={setSettings} />
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(v) => !v && setDeleteTarget(null)}>
+        <AlertDialogContent className="rounded-2xl border-neutral-200">
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar presentación?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Vas a eliminar <b>“{deleteTarget?.title}”</b>. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="rounded-lg" data-testid="btn-cancel-delete">Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="rounded-lg bg-red-600 hover:bg-red-700"
+              onClick={() => { if (deleteTarget) { remove(deleteTarget.presentation_id); setDeleteTarget(null); } }}
+              data-testid="btn-confirm-delete"
+            >
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

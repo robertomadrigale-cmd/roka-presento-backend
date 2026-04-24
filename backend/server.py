@@ -489,25 +489,14 @@ CONTENIDO DEL USUARIO:
             notes=(s.get("notes") or ""),
         ))
 
-    # fetch images in parallel
-    if req.image_source != "none":
-        async def _img(slide: Slide):
-            if not slide.image_prompt:
-                return
-            try:
-                if req.image_source == "unsplash":
-                    slide.image_url = await fetch_unsplash(slide.image_prompt)
-                elif req.image_source == "ai" and req.image_llm:
-                    if req.image_llm.provider == "openai":
-                        slide.image_url = await gen_image_openai(req.image_llm.api_key, slide.image_prompt)
-                    elif req.image_llm.provider == "gemini":
-                        slide.image_url = await gen_image_gemini(req.image_llm.api_key, slide.image_prompt)
-            except Exception as e:
-                logger.warning(f"img fail: {e}")
-
-        # Only fetch images for slides that aren't title/section to save calls
-        tasks = [_img(s) for s in slides if s.layout not in ("title", "section", "quote")]
-        await asyncio.gather(*tasks, return_exceptions=True)
+    # Unsplash is FAST (no outbound call, just URL). Do it synchronously to return with images.
+    if req.image_source == "unsplash":
+        for s in slides:
+            if s.image_prompt and s.layout not in ("title", "section", "quote"):
+                try:
+                    s.image_url = await fetch_unsplash(s.image_prompt)
+                except Exception:
+                    pass
 
     pres = Presentation(
         user_id=user.user_id,
@@ -522,6 +511,41 @@ CONTENIDO DEL USUARIO:
     )
 
     await db.presentations.insert_one(pres.model_dump())
+
+    # AI images are SLOW (~15s each via gpt-image-1). Launch in background so the client
+    # can navigate to the editor immediately; Editor polls until images populate.
+    if req.image_source == "ai" and req.image_llm:
+        pid = pres.presentation_id
+        image_llm = req.image_llm
+        target_ids = [s.id for s in slides if s.image_prompt and s.layout not in ("title", "section", "quote")]
+
+        async def _bg_generate_images():
+            for slide_id in target_ids:
+                # re-read current state so we can find prompt and write url
+                doc = await db.presentations.find_one({"presentation_id": pid}, {"_id": 0})
+                if not doc:
+                    return
+                slide = next((x for x in doc["slides"] if x["id"] == slide_id), None)
+                if not slide or not slide.get("image_prompt"):
+                    continue
+                try:
+                    if image_llm.provider == "openai":
+                        url = await asyncio.wait_for(gen_image_openai(image_llm.api_key, slide["image_prompt"]), timeout=45)
+                    elif image_llm.provider == "gemini":
+                        url = await asyncio.wait_for(gen_image_gemini(image_llm.api_key, slide["image_prompt"]), timeout=45)
+                    else:
+                        continue
+                except Exception as e:
+                    logger.warning(f"bg image fail for slide {slide_id}: {e}")
+                    continue
+                # update just this slide's image_url
+                await db.presentations.update_one(
+                    {"presentation_id": pid, "slides.id": slide_id},
+                    {"$set": {"slides.$.image_url": url, "updated_at": datetime.now(timezone.utc).isoformat()}},
+                )
+
+        asyncio.create_task(_bg_generate_images())
+
     return pres.model_dump()
 
 

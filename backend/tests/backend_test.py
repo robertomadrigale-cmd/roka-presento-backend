@@ -58,6 +58,18 @@ def auth_h(token):
     return {"Authorization": f"Bearer {token}"}
 
 
+def _reset_motor_client():
+    """Motor's AsyncIOMotorClient binds to the first event loop it touches.
+    When TestClient creates a new loop per test, the prior bound loop is closed
+    -> RuntimeError('Event loop is closed'). Reset the client so it rebinds."""
+    import sys
+    sys.path.insert(0, "/app/backend")
+    import server  # type: ignore
+    from motor.motor_asyncio import AsyncIOMotorClient
+    server.client = AsyncIOMotorClient(os.environ["MONGO_URL"])
+    server.db = server.client[os.environ["DB_NAME"]]
+
+
 # ---------- Root & basic ----------
 def test_root():
     r = requests.get(f"{API}/")
@@ -384,6 +396,7 @@ def test_generate_handles_null_slide_fields_via_monkeypatch(seeded_user, monkeyp
         return _json.dumps(fake_payload)
 
     monkeypatch.setattr(server, "run_llm", fake_run_llm)
+    _reset_motor_client()
 
     client = TestClient(server.app)
     # Seed auth via Bearer using the existing seeded_user token (already in mongo)
@@ -418,3 +431,176 @@ def test_generate_handles_null_slide_fields_via_monkeypatch(seeded_user, monkeyp
     assert saved is not None
     # Cleanup
     mongo.presentations.delete_one({"presentation_id": data["presentation_id"]})
+
+
+# ---------- NEW: Background-task refactor verification ----------
+# Bug RCA: ingress/proxy timeout was cutting connection because synchronous
+# generation of 7 AI images via gpt-image-1 took ~2 minutes. Fix: unsplash stays
+# synchronous (fast); AI images moved to asyncio.create_task() background job.
+
+def _fake_payload_with_images(n_content: int = 4) -> dict:
+    slides = [
+        {"layout": "title", "title": "Hola", "subtitle": "2026",
+         "bullets": [], "body": "", "image_prompt": None, "notes": None},
+    ]
+    for i in range(n_content):
+        slides.append({
+            "layout": "content",
+            "title": f"Slide {i+1}",
+            "subtitle": "",
+            "bullets": [f"bullet {i}.1", f"bullet {i}.2"],
+            "body": "",
+            "image_prompt": f"editorial photo scene {i}",
+            "notes": "notes",
+        })
+    # section slide should NOT get an image (excluded layout)
+    slides.append({"layout": "section", "title": "Cap 2", "subtitle": None,
+                   "bullets": None, "body": None, "image_prompt": None, "notes": None})
+    return {"title": "Deck Bg Test", "description": "sub", "slides": slides}
+
+
+def test_generate_unsplash_fills_images_synchronously(seeded_user, monkeypatch, mongo):
+    """image_source=unsplash must return 200 synchronously (<45s) with image_url
+    populated (loremflickr) for all non title/section/quote slides."""
+    import sys, time, json as _json
+    sys.path.insert(0, "/app/backend")
+    import server  # type: ignore
+    from fastapi.testclient import TestClient
+
+    payload = _fake_payload_with_images(n_content=4)
+
+    async def fake_run_llm(cfg, system, user):
+        return _json.dumps(payload)
+
+    monkeypatch.setattr(server, "run_llm", fake_run_llm)
+    _reset_motor_client()
+
+    with TestClient(server.app) as client:
+        t0 = time.time()
+        r = client.post(
+            "/api/presentations/generate",
+            headers={"Authorization": f"Bearer {seeded_user['token']}"},
+            json={
+                "title": "x",
+                "content": "contenido",
+                "num_slides": 6,
+                "language": "es",
+                "llm": {"provider": "anthropic", "model": "m", "api_key": "k"},
+                "image_source": "unsplash",
+            },
+        )
+        elapsed = time.time() - t0
+
+    assert r.status_code == 200, f"{r.status_code}: {r.text[:300]}"
+    assert elapsed < 45, f"Unsplash path took {elapsed:.1f}s — should be synchronous and fast"
+
+    data = r.json()
+    pid = data["presentation_id"]
+    try:
+        # All content slides with image_prompt should have image_url (loremflickr)
+        content_slides = [s for s in data["slides"] if s["layout"] == "content"]
+        assert len(content_slides) == 4
+        for s in content_slides:
+            assert s.get("image_url"), f"Content slide missing image_url: {s}"
+            assert "loremflickr.com" in s["image_url"]
+        # Title and section slides must NOT have image_url
+        title_slide = next(s for s in data["slides"] if s["layout"] == "title")
+        section_slide = next(s for s in data["slides"] if s["layout"] == "section")
+        assert not title_slide.get("image_url")
+        assert not section_slide.get("image_url")
+    finally:
+        mongo.presentations.delete_one({"presentation_id": pid})
+
+
+def test_generate_ai_returns_fast_and_fills_images_in_background(seeded_user, monkeypatch, mongo):
+    """image_source=ai must return 200 IMMEDIATELY with image_url=null on content
+    slides, then a background asyncio task populates image_url via gen_image_openai.
+    """
+    import sys, time, json as _json
+    sys.path.insert(0, "/app/backend")
+    import server  # type: ignore
+    from fastapi.testclient import TestClient
+
+    payload = _fake_payload_with_images(n_content=3)
+
+    async def fake_run_llm(cfg, system, user):
+        return _json.dumps(payload)
+
+    call_counter = {"n": 0}
+    import asyncio as _asyncio
+
+    async def fake_gen_image_openai(api_key, prompt):
+        call_counter["n"] += 1
+        # simulate modest delay (real gpt-image-1 is ~15s — we use ~0.2s)
+        await _asyncio.sleep(0.2)
+        return f"https://example.com/fake-{call_counter['n']}.png"
+
+    async def fake_gen_image_gemini(api_key, prompt):
+        return "https://example.com/fake-gemini.png"
+
+    monkeypatch.setattr(server, "run_llm", fake_run_llm)
+    monkeypatch.setattr(server, "gen_image_openai", fake_gen_image_openai)
+    monkeypatch.setattr(server, "gen_image_gemini", fake_gen_image_gemini)
+    _reset_motor_client()
+
+    with TestClient(server.app) as client:
+        t0 = time.time()
+        r = client.post(
+            "/api/presentations/generate",
+            headers={"Authorization": f"Bearer {seeded_user['token']}"},
+            json={
+                "title": "x",
+                "content": "contenido",
+                "num_slides": 5,
+                "language": "es",
+                "llm": {"provider": "anthropic", "model": "m", "api_key": "k"},
+                "image_source": "ai",
+                "image_llm": {"provider": "openai", "model": "gpt-image-1", "api_key": "sk-fake"},
+            },
+        )
+        elapsed_post = time.time() - t0
+        assert r.status_code == 200, f"{r.status_code}: {r.text[:300]}"
+        # Response MUST be fast (the big user-facing bug was ingress timeout on ~2min)
+        assert elapsed_post < 10, f"/generate in ai-mode should return immediately; took {elapsed_post:.1f}s"
+
+        data = r.json()
+        pid = data["presentation_id"]
+
+        # Initially, AI-mode content slides should have image_url=None/empty
+        content_slides = [s for s in data["slides"] if s["layout"] == "content"]
+        assert len(content_slides) == 3
+        for s in content_slides:
+            assert not s.get("image_url"), f"ai-mode should return without images yet: {s}"
+            assert s.get("image_prompt"), "image_prompt should be set"
+
+        # Poll until background task populates slides (up to ~10s)
+        import time as _time
+        filled = 0
+        deadline = _time.time() + 10
+        fetched = None
+        while _time.time() < deadline:
+            g = client.get(f"/api/presentations/{pid}",
+                           headers={"Authorization": f"Bearer {seeded_user['token']}"})
+            assert g.status_code == 200
+            fetched = g.json()
+            filled = sum(1 for s in fetched["slides"]
+                         if s["layout"] == "content" and s.get("image_url"))
+            if filled >= 3:
+                break
+            _time.sleep(0.5)
+
+        try:
+            assert filled >= 1, (
+                f"Background task did not populate any image_url within 10s "
+                f"(filled={filled}, gen_image_openai called {call_counter['n']} times)"
+            )
+            # Verify the fake URL shape
+            any_filled = next(s for s in fetched["slides"]
+                              if s["layout"] == "content" and s.get("image_url"))
+            assert any_filled["image_url"].startswith("https://example.com/fake-"), \
+                f"Unexpected image_url: {any_filled['image_url']}"
+            # Section slide must still be image-less
+            section = next(s for s in fetched["slides"] if s["layout"] == "section")
+            assert not section.get("image_url")
+        finally:
+            mongo.presentations.delete_one({"presentation_id": pid})

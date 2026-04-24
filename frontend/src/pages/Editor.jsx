@@ -32,6 +32,36 @@ export default function Editor() {
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
 
+  // Poll for background-generated AI images. Stop when all slides with image_prompt have image_url, or after 5 min.
+  useEffect(() => {
+    if (!pres) return;
+    const pending = pres.slides.filter(
+      (s) => s.image_prompt && !s.image_url && !["title", "section", "quote"].includes(s.layout)
+    );
+    if (pending.length === 0) return;
+    const startedAt = Date.now();
+    const interval = setInterval(async () => {
+      if (Date.now() - startedAt > 5 * 60 * 1000) { clearInterval(interval); return; }
+      try {
+        const { data } = await api.get(`/presentations/${id}`);
+        // merge ONLY image_url updates, don't overwrite local edits
+        setPres((prev) => {
+          if (!prev) return data;
+          const next = { ...prev };
+          next.slides = prev.slides.map((ps) => {
+            const server = data.slides.find((x) => x.id === ps.id);
+            if (server && server.image_url && !ps.image_url) {
+              return { ...ps, image_url: server.image_url };
+            }
+            return ps;
+          });
+          return next;
+        });
+      } catch {}
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [pres?.presentation_id, id]);  // eslint-disable-line
+
   if (!pres) return (
     <div className="min-h-screen bg-neutral-50/50">
       <Navbar onOpenSettings={() => setSettings(true)} />
@@ -115,6 +145,10 @@ export default function Editor() {
     window.open(`${API_BASE}/presentations/${id}/export/html`, "_blank");
   };
 
+  const pendingImages = pres.slides.filter(
+    (s) => s.image_prompt && !s.image_url && !["title", "section", "quote"].includes(s.layout)
+  ).length;
+
   return (
     <div className="h-screen flex flex-col bg-neutral-100 overflow-hidden">
       <Navbar onOpenSettings={() => setSettings(true)} />
@@ -133,6 +167,12 @@ export default function Editor() {
           />
         </div>
         <div className="flex gap-1.5">
+          {pendingImages > 0 && (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-700" data-testid="pending-images-indicator">
+              <Loader2 size={12} className="animate-spin" />
+              <span>Generando {pendingImages} imágen{pendingImages > 1 ? "es" : ""}…</span>
+            </div>
+          )}
           <Button onClick={saveAll} variant="ghost" size="sm" disabled={busy} className="rounded-lg text-sm gap-1.5" data-testid="btn-save">
             {busy ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Guardar
           </Button>

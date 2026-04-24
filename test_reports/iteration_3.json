@@ -1,0 +1,35 @@
+{
+  "summary": "Verified the background-task refactor for /api/presentations/generate that fixes the 'no genera presentaciones' bug (ingress timeout from synchronous gpt-image-1 calls). Added 2 new monkeypatched tests and all 27 backend tests pass (25 prior + 2 new).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/presentations/generate", "issue": "Background task uses asyncio.create_task() with no reference retained; if app shuts down mid-generation, images for that presentation are lost silently (no retry, no status flag). Consider storing a 'image_generation_status' field or using a job queue."},
+      {"endpoint": "/api/presentations/generate", "issue": "Background image task has no per-presentation concurrency limit; if 10 users generate simultaneously with OpenAI, 70 concurrent gpt-image-1 calls may be fired, risking rate-limit or memory pressure."},
+      {"endpoint": "/api/images/generate (source=unsplash)", "issue": "loremflickr.com is third-party and not a true drop-in for Unsplash (image relevance varies). Carryover from iter_2."},
+      {"endpoint": "/api/auth/session", "issue": "Still inserts a new user_sessions doc each call without upsert/cleanup -> unbounded growth. Carryover."},
+      {"endpoint": "/api/presentations/{pid} PUT", "issue": "Accepts arbitrary dict body without Pydantic validation. Carryover."},
+      {"endpoint": "/api/extract/url", "issue": "No SSRF protections (no scheme whitelist, no private-IP block). Carryover."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Background task correctness verified: with image_source='ai' the endpoint returns <10s; monkeypatched gen_image_openai called 3/3 times; DB rows updated via slides.$.image_url positional update.",
+    "Unsplash path verified synchronous (<1s in test) and populates image_url for all non title/section/quote slides with loremflickr URLs.",
+    "Background task silently swallows all exceptions (except asyncio.wait_for timeout) — logs a warning but leaves image_url=null. UI must poll and handle the 'never-populated' case (e.g., show a retry button or a placeholder) instead of hanging.",
+    "asyncio.create_task() in presentations_generate creates an orphan task; the task is not tracked. If the ASGI worker is cycled (supervisor restart) during generation, silent data loss. Consider background job queue (Redis/Celery) for durability.",
+    "server.py still ~833 lines — split into routers (carryover). Sync httpx.get() inside build_pptx blocks the event loop (carryover). CORS allow_origins='*' with allow_credentials=True (carryover)."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (27/27)", "frontend": "not tested (skipped per request)"},
+  "test_credentials": "No real credentials/keys. run_llm, gen_image_openai, gen_image_gemini are monkeypatched. Test user+session seeded directly in MongoDB.",
+  "seed_data_creation": "Session-scoped fixture creates TEST_ user + session; each new test cleans up its presentation via try/finally.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Suite has 27 tests. 2 new this iteration: test_generate_unsplash_fills_images_synchronously (verifies <45s, loremflickr URL set on content slides, NOT on title/section) and test_generate_ai_returns_fast_and_fills_images_in_background (verifies POST returns <10s with image_url=null, polls GET for up to 10s, asserts background task populated >=1 slide via monkeypatched gen_image_openai). IMPORTANT: TestClient tests require _reset_motor_client() before instantiation because motor.AsyncIOMotorClient binds to the first event loop it touches and TestClient creates a new loop per instance — without reset, 2nd TestClient usage throws 'Event loop is closed'. Also, use 'with TestClient(app) as client:' (context manager) so the anyio portal keeps the loop alive long enough for asyncio.create_task() background work to complete; without the context manager, the background task is cancelled when the request returns.",
+  "rca of the issue": "Original 'no genera presentaciones' bug RCA: presentations_generate called gen_image_openai(gpt-image-1) synchronously in a for-loop over 7 content slides (~15s each = ~105s) inside the request handler. Ingress/nginx proxy cut the connection at ~60s -> client saw 'Error generando' while Mongo actually had the doc persisted. Fix verified: unsplash path stays synchronous (fast URL build, no HTTP); ai path writes Presentation to Mongo FIRST, responds 200 immediately, then asyncio.create_task() runs gen_image_* per slide and updates slides.$.image_url via positional operator. Frontend Editor is expected to poll GET /api/presentations/{pid} until image_url fills in. Tests confirm POST completes in <10s (measured ~1-2s with monkeypatch) and DB updates within ~1s of the fake image generator returning."
+}
