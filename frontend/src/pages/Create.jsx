@@ -62,6 +62,13 @@ export default function Create() {
       return;
     }
     setLoading(true);
+    // snapshot of existing presentations so we can recover if the request breaks
+    let beforeIds = new Set();
+    try {
+      const { data: existing } = await api.get("/presentations");
+      beforeIds = new Set(existing.map((p) => p.presentation_id));
+    } catch {}
+
     try {
       let fullContent = content;
       if (files.length) { const t = await extractFiles(); fullContent += "\n\n" + t; }
@@ -74,10 +81,31 @@ export default function Create() {
         image_source: imgCfg.source || "unsplash", image_llm: imgCfg.llm || null,
       };
       const { data } = await api.post("/presentations/generate", payload);
+      if (!data || !data.presentation_id) throw new Error("Respuesta sin presentation_id");
       toast.success("¡Presentación lista!");
-      nav(`/editor/${data.presentation_id}`);
+      setTimeout(() => nav(`/editor/${data.presentation_id}`), 300);
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Error generando");
+      console.error("Generate error:", e);
+      // Recovery: maybe the presentation actually saved despite the error
+      try {
+        const { data: afterList } = await api.get("/presentations");
+        const fresh = afterList.find((p) => !beforeIds.has(p.presentation_id));
+        if (fresh) {
+          toast.success("Presentación recuperada. Puede que falten imágenes.", { duration: 5000 });
+          setTimeout(() => nav(`/editor/${fresh.presentation_id}`), 300);
+          return;
+        }
+      } catch {}
+      const serverMsg = e?.response?.data?.detail;
+      const status = e?.response?.status;
+      const msg = serverMsg
+        ? `${status || ""} · ${serverMsg}`
+        : e?.message === "Network Error"
+          ? "Error de red — revisa tu conexión"
+          : e?.code === "ECONNABORTED"
+            ? "La generación tardó demasiado. Intenta con menos slides o usa Unsplash."
+            : `Error: ${e?.message || "desconocido"}`;
+      toast.error(msg, { duration: 8000 });
     } finally { setLoading(false); }
   };
 
