@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import AIKeyModal from "../components/AIKeyModal";
 import TemplatePicker, { TEMPLATES } from "../components/TemplatePicker";
+import AITemplateCreator from "../components/AITemplateCreator";
 import GeneratingOverlay from "../components/GeneratingOverlay";
 import { api } from "../lib/api";
 import { Button } from "../components/ui/button";
@@ -11,7 +12,7 @@ import { Textarea } from "../components/ui/textarea";
 import { Label } from "../components/ui/label";
 import { loadLLM, loadImageCfg } from "../lib/aiStorage";
 import { toast } from "sonner";
-import { ArrowLeft, ArrowRight, Sparkles, Upload, Link2, FileText, Check } from "lucide-react";
+import { ArrowLeft, ArrowRight, Sparkles, Upload, Link2, FileText, Check, Wand2 } from "lucide-react";
 
 export default function Create() {
   const nav = useNavigate();
@@ -62,12 +63,6 @@ export default function Create() {
       return;
     }
     setLoading(true);
-    // snapshot of existing presentations so we can recover if the request breaks
-    let beforeIds = new Set();
-    try {
-      const { data: existing } = await api.get("/presentations");
-      beforeIds = new Set(existing.map((p) => p.presentation_id));
-    } catch {}
 
     try {
       let fullContent = content;
@@ -80,45 +75,46 @@ export default function Create() {
         title, content: fullContent, num_slides: numSlides, language, tone, template, ...custom, llm,
         image_source: imgCfg.source || "unsplash", image_llm: imgCfg.llm || null,
       };
+      // Backend returns IMMEDIATELY with a 'generating' placeholder
       const { data } = await api.post("/presentations/generate", payload);
       if (!data || !data.presentation_id) throw new Error("Respuesta sin presentation_id");
-      toast.success("¡Presentación lista!");
-      setTimeout(() => nav(`/editor/${data.presentation_id}`), 300);
+      toast.success("Generando presentación…");
+      nav(`/editor/${data.presentation_id}`);
     } catch (e) {
       console.error("Generate error:", e);
-      // Recovery: maybe the presentation actually saved despite the error
-      try {
-        const { data: afterList } = await api.get("/presentations");
-        const fresh = afterList.find((p) => !beforeIds.has(p.presentation_id));
-        if (fresh) {
-          toast.success("Presentación recuperada. Puede que falten imágenes.", { duration: 5000 });
-          setTimeout(() => nav(`/editor/${fresh.presentation_id}`), 300);
-          return;
-        }
-      } catch {}
       const serverMsg = e?.response?.data?.detail;
       const status = e?.response?.status;
       const msg = serverMsg
         ? `${status || ""} · ${serverMsg}`
         : e?.message === "Network Error"
           ? "Error de red — revisa tu conexión"
-          : e?.code === "ECONNABORTED"
-            ? "La generación tardó demasiado. Intenta con menos slides o usa Unsplash."
-            : `Error: ${e?.message || "desconocido"}`;
+          : `Error: ${e?.message || "desconocido"}`;
       toast.error(msg, { duration: 8000 });
     } finally { setLoading(false); }
   };
 
-  const StepPill = ({ n, t }) => {
+  const handleTemplateCreated = (template) => {
+    // Auto-select the newly created template
+    setTemplate(template.id);
+    setCustom({
+      primary_color: template.primary,
+      background_color: template.bg,
+      text_color: template.text,
+      accent_color: template.accent,
+    });
+    toast.success(`Plantilla "${template.name}" seleccionada`);
+  };
+
+  const StepPill = ({ n, t, icon: Icon }) => {
     const done = step > n;
     const active = step === n;
     return (
       <button
         onClick={() => setStep(n)}
-        className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all ${
-          active ? "bg-neutral-900 text-white border-neutral-900"
-                 : done ? "bg-white text-neutral-700 border-neutral-300"
-                        : "bg-white text-neutral-400 border-neutral-200"
+        className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-all ${
+          active ? "bg-neutral-900 text-white border-neutral-900 soft-shadow"
+                 : done ? "bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-50"
+                        : "bg-white text-neutral-400 border-neutral-200 hover:bg-neutral-50"
         }`}
         data-testid={`step-${n}`}
       >
@@ -138,8 +134,8 @@ export default function Create() {
       <GeneratingOverlay open={loading} />
 
       <div className="max-w-4xl mx-auto px-6 py-10">
-        <button onClick={() => nav("/dashboard")} className="flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-900 mb-6" data-testid="btn-back">
-          <ArrowLeft size={15} /> Volver al panel
+        <button onClick={() => nav("/dashboard")} className="flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-900 mb-6 group" data-testid="btn-back">
+          <ArrowLeft size={15} className="group-hover:-translate-x-0.5 transition-transform" /> Volver al panel
         </button>
 
         <div className="flex items-center gap-2 mb-10 flex-wrap">
@@ -173,7 +169,7 @@ export default function Create() {
             </div>
 
             <div className="grid md:grid-cols-2 gap-4">
-              <label className="rounded-2xl bg-white border border-neutral-200 soft-shadow p-5 cursor-pointer hover:border-neutral-300 transition-colors block">
+              <label className="rounded-2xl bg-white border border-neutral-200 soft-shadow p-5 cursor-pointer hover:border-neutral-300 hover:soft-shadow-lg transition-all block">
                 <div className="flex items-center gap-2 text-sm font-medium"><Upload size={15} /> Archivos</div>
                 <input
                   type="file"
@@ -191,7 +187,7 @@ export default function Create() {
                 )}
               </label>
 
-              <div className="rounded-2xl bg-white border border-neutral-200 soft-shadow p-5">
+              <div className="rounded-2xl bg-white border border-neutral-200 soft-shadow p-5 hover:soft-shadow-lg transition-all">
                 <div className="flex items-center gap-2 text-sm font-medium"><Link2 size={15} /> URL</div>
                 <Input value={url} onChange={(e) => setUrl(e.target.value)} className="rounded-lg mt-3 border-neutral-200" placeholder="https://..." data-testid="input-url" />
                 <p className="text-xs text-neutral-500 mt-2">Extraemos el contenido de cualquier página pública.</p>
@@ -210,11 +206,17 @@ export default function Create() {
           <div className="space-y-6 fade-up">
             <div>
               <h1 className="font-display text-4xl md:text-5xl tracking-[-0.03em]">Elige el estilo.</h1>
-              <p className="text-neutral-500 mt-2">Puedes ajustar colores al detalle.</p>
+              <p className="text-neutral-500 mt-2">16 plantillas premium o crea la tuya con IA. Ajusta colores al detalle.</p>
             </div>
+
+            {/* AI Template Creator */}
+            <AITemplateCreator onTemplateCreated={handleTemplateCreated} />
+
+            {/* Template picker */}
             <div className="rounded-2xl bg-white border border-neutral-200 soft-shadow p-5">
               <TemplatePicker value={template} onChange={setTemplate} custom={custom} onCustomChange={setCustom} />
             </div>
+
             <div className="flex justify-between">
               <Button variant="ghost" onClick={() => setStep(1)} className="rounded-xl gap-2"><ArrowLeft size={15} /> Atrás</Button>
               <Button onClick={() => setStep(3)} className="rounded-xl bg-neutral-900 hover:bg-neutral-800 text-white soft-shadow gap-2" data-testid="btn-next-step-2">
@@ -255,6 +257,34 @@ export default function Create() {
                     <option value="pt">Português</option>
                     <option value="fr">Français</option>
                   </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Summary card */}
+            <div className="rounded-2xl bg-white border border-neutral-200 soft-shadow p-5">
+              <div className="text-xs font-medium text-neutral-500 uppercase tracking-wide mb-4">Resumen</div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="p-3 rounded-xl bg-neutral-50 border border-neutral-100">
+                  <div className="text-[10px] text-neutral-400 uppercase tracking-wide">Slides</div>
+                  <div className="font-display text-xl mt-1">{numSlides}</div>
+                </div>
+                <div className="p-3 rounded-xl bg-neutral-50 border border-neutral-100">
+                  <div className="text-[10px] text-neutral-400 uppercase tracking-wide">Tono</div>
+                  <div className="font-display text-sm mt-1 capitalize">{tone}</div>
+                </div>
+                <div className="p-3 rounded-xl bg-neutral-50 border border-neutral-100">
+                  <div className="text-[10px] text-neutral-400 uppercase tracking-wide">Plantilla</div>
+                  <div className="flex items-center gap-2 mt-1">
+                    <div className="w-4 h-4 rounded-full" style={{ background: custom.primary_color }} />
+                    <span className="font-display text-sm capitalize">{template.replace("custom_", "IA ")}</span>
+                  </div>
+                </div>
+                <div className="p-3 rounded-xl bg-neutral-50 border border-neutral-100">
+                  <div className="text-[10px] text-neutral-400 uppercase tracking-wide">Contenido</div>
+                  <div className="font-display text-sm mt-1">
+                    {(content ? "Texto" : "") + (files.length ? (content ? " + " : "") + `${files.length} archivo${files.length > 1 ? "s" : ""}` : "") + (url ? " + URL" : "") || "—"}
+                  </div>
                 </div>
               </div>
             </div>

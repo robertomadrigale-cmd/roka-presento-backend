@@ -1,0 +1,21 @@
+{
+  "short_name": "Presento",
+  "name": "ROKA PRESENTO",
+  "icons": [
+    {
+      "src": "logo192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "logo512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#171717",
+  "background_color": "#ffffff",
+  "description": "Tu próxima presentación, en 60 segundos con IA."
+}

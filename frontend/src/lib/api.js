@@ -8,3 +8,15 @@ export const api = axios.create({
   withCredentials: true,
   timeout: 180000, // 3 min for slow LLM generation
 });
+
+export function clearSessionToken() {
+  // Backwards compatibility, but not needed anymore with httpOnly cookies
+}
+
+// Backend connection
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    return Promise.reject(error);
+  }
+);

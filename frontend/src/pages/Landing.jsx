@@ -1,5 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 import Navbar from "../components/Navbar";
 import { Button } from "../components/ui/button";
 import AIKeyModal from "../components/AIKeyModal";
@@ -7,9 +8,21 @@ import { ArrowRight, FileText, Wand2, Download, Sparkles, Check, Zap, Shield, Pa
 
 export default function Landing() {
   const nav = useNavigate();
+  const { user } = useAuth();
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  useEffect(() => {
+    // Si ya estamos autenticados, mandar directo al Dashboard
+    if (user) {
+      nav("/dashboard", { replace: true });
+    }
+  }, [user, nav]);
+
   const login = () => {
+    if (user) {
+      nav("/dashboard");
+      return;
+    }
     // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
     const redirectUrl = window.location.origin + "/dashboard";
     window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
@@ -47,7 +60,7 @@ export default function Landing() {
               className="rounded-xl bg-neutral-900 hover:bg-neutral-800 text-white h-12 px-6 text-base soft-shadow-lg gap-2 group"
               data-testid="hero-cta-login"
             >
-              Comenzar gratis
+              {user ? "Ir al Dashboard" : "Comenzar gratis"}
               <ArrowRight size={17} className="group-hover:translate-x-0.5 transition-transform" />
             </Button>
             <Button
@@ -215,7 +228,7 @@ export default function Landing() {
             className="mt-8 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-white h-13 px-8 text-base soft-shadow-lg gap-2"
             data-testid="cta-bottom-login"
           >
-            Comenzar con Google <ArrowRight size={17} />
+            {user ? "Ir al Dashboard" : "Comenzar con Google"} <ArrowRight size={17} />
           </Button>
         </div>
       </section>

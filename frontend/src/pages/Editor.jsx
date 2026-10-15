@@ -8,9 +8,9 @@ import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
-import { loadLLM } from "../lib/aiStorage";
+import { loadLLM, loadImageCfg } from "../lib/aiStorage";
 import { toast } from "sonner";
-import { ArrowLeft, Save, Download, ExternalLink, Plus, Trash2, Sparkles, Loader2, Wand2 } from "lucide-react";
+import { ArrowLeft, Save, Download, ExternalLink, Plus, Trash2, Sparkles, Loader2, Wand2, Image as ImageIcon, RefreshCw, Copy } from "lucide-react";
 
 export default function Editor() {
   const { id } = useParams();
@@ -20,6 +20,8 @@ export default function Editor() {
   const [settings, setSettings] = useState(false);
   const [regenInstr, setRegenInstr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [imgBusy, setImgBusy] = useState(false);
+  const [imgPromptInput, setImgPromptInput] = useState("");
 
   const load = async () => {
     try {
@@ -32,22 +34,24 @@ export default function Editor() {
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
 
-  // Poll for background-generated AI images. Stop when all slides with image_prompt have image_url, or after 5 min.
+  // Poll while generating OR while AI images are pending
   useEffect(() => {
     if (!pres) return;
+    const generating = pres.status === "generating";
     const pending = pres.slides.filter(
       (s) => s.image_prompt && !s.image_url && !["title", "section", "quote"].includes(s.layout)
     );
-    if (pending.length === 0) return;
+    if (!generating && pending.length === 0) return;
     const startedAt = Date.now();
     const interval = setInterval(async () => {
       if (Date.now() - startedAt > 5 * 60 * 1000) { clearInterval(interval); return; }
       try {
         const { data } = await api.get(`/presentations/${id}`);
-        // merge ONLY image_url updates, don't overwrite local edits
         setPres((prev) => {
-          if (!prev) return data;
-          const next = { ...prev };
+          // While generating, fully replace (slides go from [] → populated)
+          if (!prev || prev.status === "generating") return data;
+          // After ready, only merge image_url updates to preserve local edits
+          const next = { ...prev, status: data.status, error_message: data.error_message };
           next.slides = prev.slides.map((ps) => {
             const server = data.slides.find((x) => x.id === ps.id);
             if (server && server.image_url && !ps.image_url) {
@@ -58,9 +62,9 @@ export default function Editor() {
           return next;
         });
       } catch {}
-    }, 4000);
+    }, 2000);
     return () => clearInterval(interval);
-  }, [pres?.presentation_id, id]);  // eslint-disable-line
+  }, [pres?.presentation_id, pres?.status, id]);  // eslint-disable-line
 
   if (!pres) return (
     <div className="min-h-screen bg-neutral-50/50">
@@ -68,6 +72,50 @@ export default function Editor() {
       <div className="p-10 flex items-center gap-2 text-sm text-neutral-500"><Loader2 size={15} className="animate-spin" /> Cargando…</div>
     </div>
   );
+
+  if (pres.status === "generating" || (pres.status === "ready" && pres.slides.length === 0)) {
+    return (
+      <div className="min-h-screen bg-neutral-50/50">
+        <Navbar onOpenSettings={() => setSettings(true)} />
+        <div className="max-w-xl mx-auto px-6 py-16">
+          <div className="rounded-2xl bg-white border border-neutral-200 soft-shadow-lg p-10 text-center">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-blue-600 to-violet-600 flex items-center justify-center text-white mb-5 soft-shadow-lg">
+              <Sparkles size={22} className="animate-pulse" />
+            </div>
+            <div className="font-display text-2xl tracking-tight mb-2">Creando tu presentación</div>
+            <p className="text-sm text-neutral-500 mb-6">
+              La IA está analizando el contenido y estructurando las diapositivas.
+              Esto puede tardar entre 30 y 90 segundos según el modelo.
+            </p>
+            <div className="flex items-center justify-center gap-2 text-xs text-blue-600">
+              <Loader2 size={14} className="animate-spin" />
+              <span>Procesando con {pres.title === "Generando presentación…" ? "IA" : "tu modelo"}…</span>
+            </div>
+            <div className="mt-8 text-[11px] font-mono text-neutral-400">{pres.presentation_id}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (pres.status === "error") {
+    return (
+      <div className="min-h-screen bg-neutral-50/50">
+        <Navbar onOpenSettings={() => setSettings(true)} />
+        <div className="max-w-xl mx-auto px-6 py-16">
+          <div className="rounded-2xl bg-white border border-red-200 soft-shadow-lg p-10 text-center">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-red-50 border border-red-200 flex items-center justify-center text-red-600 mb-5 text-2xl">!</div>
+            <div className="font-display text-2xl tracking-tight mb-2">La IA no pudo completar</div>
+            <p className="text-sm text-neutral-600 mb-6">{pres.error_message || "Error desconocido"}</p>
+            <div className="flex gap-2 justify-center">
+              <Button onClick={() => nav("/create")} className="rounded-xl bg-neutral-900 hover:bg-neutral-800 text-white" data-testid="btn-retry-create">Intentar de nuevo</Button>
+              <Button onClick={() => nav("/dashboard")} variant="outline" className="rounded-xl border-neutral-200">Volver</Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const theme = {
     primary_color: pres.primary_color,
@@ -122,6 +170,54 @@ export default function Editor() {
     } finally { setBusy(false); }
   };
 
+  // Smart AI image generation for current slide
+  const generateSlideImage = async () => {
+    const imgCfg = loadImageCfg();
+    const llm = loadLLM();
+
+    if (!llm?.api_key) {
+      toast.error("Configura tu IA primero");
+      setSettings(true);
+      return;
+    }
+
+    setImgBusy(true);
+    try {
+      const { data } = await api.post("/images/generate-for-slide", {
+        slide: {
+          title: current.title || "",
+          subtitle: current.subtitle || "",
+          bullets: current.bullets || [],
+          body: current.body || "",
+          layout: current.layout || "content",
+          image_prompt: current.image_prompt || "",
+        },
+        template: {
+          primary_color: pres.primary_color,
+          background_color: pres.background_color,
+          text_color: pres.text_color,
+        },
+        custom_prompt: imgPromptInput || "",
+        content_llm: llm,
+        image_source: imgCfg.source || "unsplash",
+        image_llm: imgCfg.llm || null,
+      });
+
+      if (data?.url) {
+        updateSlide({ image_url: data.url, image_prompt: data.prompt || current.image_prompt });
+        toast.success("Imagen generada");
+        setImgPromptInput("");
+      } else {
+        toast.error("No se pudo generar la imagen");
+      }
+    } catch (e) {
+      console.error("Image gen error:", e);
+      toast.error(e?.response?.data?.detail || "Error generando imagen");
+    } finally {
+      setImgBusy(false);
+    }
+  };
+
   const deleteSlide = () => {
     if (pres.slides.length <= 1) return toast.error("Debe haber al menos una slide");
     if (!window.confirm("¿Eliminar esta slide?")) return;
@@ -131,9 +227,18 @@ export default function Editor() {
   };
 
   const addSlide = () => {
-    const newSlide = { id: crypto.randomUUID(), layout: "content", title: "Nueva slide", bullets: [], body: "", subtitle: "", image_url: null, notes: "" };
+    const newSlide = { id: crypto.randomUUID(), layout: "content", title: "Nueva slide", bullets: [], body: "", subtitle: "", image_url: null, image_prompt: "", notes: "" };
     setPres({ ...pres, slides: [...pres.slides, newSlide] });
     setActive(pres.slides.length);
+  };
+
+  const duplicateSlide = () => {
+    const copy = { ...current, id: crypto.randomUUID(), title: current.title + " (copia)" };
+    const slides = [...pres.slides];
+    slides.splice(active + 1, 0, copy);
+    setPres({ ...pres, slides });
+    setActive(active + 1);
+    toast.success("Slide duplicada");
   };
 
   const exportPPTX = async () => {
@@ -215,9 +320,14 @@ export default function Editor() {
               <span className="font-mono text-neutral-500">
                 Slide {active + 1} de {pres.slides.length} · <span className="text-neutral-900">{current.layout}</span>
               </span>
-              <button onClick={deleteSlide} className="flex items-center gap-1.5 text-neutral-500 hover:text-red-600 transition-colors" data-testid="btn-delete-slide">
-                <Trash2 size={12} /> Eliminar
-              </button>
+              <div className="flex items-center gap-3">
+                <button onClick={duplicateSlide} className="flex items-center gap-1.5 text-neutral-500 hover:text-blue-600 transition-colors" data-testid="btn-duplicate-slide">
+                  <Copy size={12} /> Duplicar
+                </button>
+                <button onClick={deleteSlide} className="flex items-center gap-1.5 text-neutral-500 hover:text-red-600 transition-colors" data-testid="btn-delete-slide">
+                  <Trash2 size={12} /> Eliminar
+                </button>
+              </div>
             </div>
           </div>
         </main>
@@ -250,13 +360,55 @@ export default function Editor() {
             </Button>
           </div>
 
+          {/* AI Image Generator */}
+          <div className="p-4 border-b border-neutral-100 bg-gradient-to-br from-amber-50/50 to-orange-50/50">
+            <div className="flex items-center gap-2 mb-2">
+              <ImageIcon size={14} className="text-amber-600" />
+              <span className="text-sm font-medium">Imagen con IA</span>
+            </div>
+            <Input
+              value={imgPromptInput}
+              onChange={(e) => setImgPromptInput(e.target.value)}
+              placeholder="Ej: fotografía aérea minimalista, abstracto neón…"
+              className="rounded-lg border-neutral-200 text-sm bg-white"
+              data-testid="input-img-prompt"
+            />
+            <p className="text-[10px] text-neutral-400 mt-1 mb-2">
+              Deja vacío para auto-generar basándose en el contenido del slide
+            </p>
+            <Button
+              onClick={generateSlideImage}
+              disabled={imgBusy}
+              size="sm"
+              className="w-full rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white gap-1.5 soft-shadow"
+              data-testid="btn-gen-image"
+            >
+              {imgBusy ? (
+                <><Loader2 size={13} className="animate-spin" /> Generando imagen…</>
+              ) : (
+                <><ImageIcon size={13} /> Generar imagen</>
+              )}
+            </Button>
+            {current.image_url && (
+              <Button
+                onClick={() => { setImgPromptInput(""); generateSlideImage(); }}
+                disabled={imgBusy}
+                variant="ghost"
+                size="sm"
+                className="w-full rounded-lg mt-1 text-xs gap-1.5 text-neutral-600"
+              >
+                <RefreshCw size={12} /> Regenerar imagen
+              </Button>
+            )}
+          </div>
+
           {/* Edit */}
           <div className="p-4 space-y-3 border-b border-neutral-100">
             <div className="text-[10px] font-medium uppercase text-neutral-500 tracking-wide">Edición</div>
             <div>
               <Label className="text-[10px] text-neutral-500 font-medium">LAYOUT</Label>
               <select value={current.layout} onChange={(e) => updateSlide({ layout: e.target.value })} className="w-full rounded-lg border border-neutral-200 px-2 py-1.5 mt-1 text-sm" data-testid="select-layout">
-                {["title", "content", "two-column", "image-right", "quote", "section"].map((l) => <option key={l} value={l}>{l}</option>)}
+                {["title", "content", "two-column", "image-right", "quote", "section", "data-grid"].map((l) => <option key={l} value={l}>{l}</option>)}
               </select>
             </div>
             <div>

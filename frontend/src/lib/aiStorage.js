@@ -1,6 +1,7 @@
 // Stores LLM API config in localStorage (user-supplied).
 const KEY = "presento_llm_config_v1";
 const IMG_KEY = "presento_image_config_v1";
+const CUSTOM_TEMPLATES_KEY = "presento_custom_templates_v1";
 
 export const loadLLM = () => {
   try { return JSON.parse(localStorage.getItem(KEY)) || null; } catch { return null; }
@@ -12,6 +13,23 @@ export const loadImageCfg = () => {
   try { return JSON.parse(localStorage.getItem(IMG_KEY)) || { source: "unsplash" }; } catch { return { source: "unsplash" }; }
 };
 export const saveImageCfg = (cfg) => localStorage.setItem(IMG_KEY, JSON.stringify(cfg));
+
+// Custom AI-generated templates
+export const loadCustomTemplates = () => {
+  try { return JSON.parse(localStorage.getItem(CUSTOM_TEMPLATES_KEY)) || []; } catch { return []; }
+};
+export const saveCustomTemplate = (template) => {
+  const existing = loadCustomTemplates();
+  // Prevent duplicates by id
+  const filtered = existing.filter(t => t.id !== template.id);
+  filtered.unshift(template); // newest first
+  // Keep max 20 custom templates
+  localStorage.setItem(CUSTOM_TEMPLATES_KEY, JSON.stringify(filtered.slice(0, 20)));
+};
+export const deleteCustomTemplate = (id) => {
+  const existing = loadCustomTemplates();
+  localStorage.setItem(CUSTOM_TEMPLATES_KEY, JSON.stringify(existing.filter(t => t.id !== id)));
+};
 
 export const PROVIDERS = {
   anthropic: {

@@ -9,6 +9,7 @@ import Dashboard from "./pages/Dashboard";
 import Create from "./pages/Create";
 import Editor from "./pages/Editor";
 
+
 const Protected = ({ children }) => {
   const { user, loading } = useAuth();
   if (loading) return <div className="min-h-screen flex items-center justify-center font-mono text-sm tracking-[0.3em]">CARGANDO…</div>;

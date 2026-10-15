@@ -7,7 +7,7 @@ from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Respons
 from fastapi.responses import StreamingResponse, HTMLResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
+from google.cloud import firestore
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from pathlib import Path
@@ -29,9 +29,80 @@ from pptx.dml.color import RGBColor
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+class MotorFindWrapper:
+    def __init__(self, query):
+        self.query = query
+
+    def sort(self, field, direction):
+        if direction == -1:
+            self.query = self.query.order_by(field, direction=firestore.Query.DESCENDING)
+        else:
+            self.query = self.query.order_by(field, direction=firestore.Query.ASCENDING)
+        return self
+
+    async def to_list(self, limit):
+        res = await self.query.limit(limit).get()
+        return [d.to_dict() for d in res]
+
+class FirestoreCollection:
+    def __init__(self, client, name):
+        self.coll = client.collection(name)
+
+    async def find_one(self, query, proj=None):
+        docs = self.coll
+        for k, v in query.items():
+            docs = docs.where(filter=firestore.FieldFilter(k, "==", v))
+        res = await docs.limit(1).get()
+        if not res: return None
+        return res[0].to_dict()
+
+    async def insert_one(self, doc):
+        if "user_id" in doc and self.coll.id == "users":
+            await self.coll.document(doc["user_id"]).set(doc)
+        elif "session_token" in doc and self.coll.id == "user_sessions":
+            await self.coll.document(doc["session_token"]).set(doc)
+        elif "presentation_id" in doc and self.coll.id == "presentations":
+            await self.coll.document(doc["presentation_id"]).set(doc)
+        else:
+            await self.coll.add(doc)
+        class DummyRes:
+            inserted_id = "123"
+        return DummyRes()
+
+    async def update_one(self, query, update):
+        docs = self.coll
+        for k, v in query.items():
+            docs = docs.where(filter=firestore.FieldFilter(k, "==", v))
+        res = await docs.limit(1).get()
+        if not res: return
+        doc_id = res[0].id
+        if "$set" in update:
+            await self.coll.document(doc_id).update(update["$set"])
+        else:
+            await self.coll.document(doc_id).update(update)
+
+    async def delete_one(self, query):
+        docs = self.coll
+        for k, v in query.items():
+            docs = docs.where(filter=firestore.FieldFilter(k, "==", v))
+        res = await docs.limit(1).get()
+        if res:
+            await self.coll.document(res[0].id).delete()
+
+    def find(self, query, proj=None):
+        docs = self.coll
+        for k, v in query.items():
+            docs = docs.where(filter=firestore.FieldFilter(k, "==", v))
+        return MotorFindWrapper(docs)
+
+class FirestoreWrapper:
+    def __init__(self, client):
+        self.client = client
+    def __getattr__(self, name):
+        return FirestoreCollection(self.client, name)
+
+_fs_client = firestore.AsyncClient(project=os.environ.get('GOOGLE_CLOUD_PROJECT', 'roka-case-suite'))
+db = FirestoreWrapper(_fs_client)
 
 app = FastAPI(title="Presento API")
 api = APIRouter(prefix="/api")
@@ -50,7 +121,7 @@ class User(BaseModel):
 
 class Slide(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    layout: str = "content"   # title | content | two-column | image-right | quote | section
+    layout: str = "content"   # title | content | two-column | image-right | quote | section | data-grid
     title: Optional[str] = ""
     subtitle: Optional[str] = ""
     bullets: List[str] = []
@@ -70,6 +141,8 @@ class Presentation(BaseModel):
     background_color: str = "#FFFFFF"
     text_color: str = "#000000"
     slides: List[Slide] = []
+    status: str = "ready"   # generating | ready | error
+    error_message: Optional[str] = None
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -187,7 +260,7 @@ async def auth_session(request: Request, response: Response):
         httponly=True, secure=True, samesite="none",
         path="/", max_age=7 * 24 * 60 * 60,
     )
-    return {"user": {"user_id": user_id, "email": email, "name": name, "picture": picture}}
+    return {"user": {"user_id": user_id, "email": email, "name": name, "picture": picture}, "session_token": session_token}
 
 
 @api.get("/auth/me")
@@ -363,17 +436,32 @@ async def gen_image_openai(api_key: str, prompt: str) -> str:
 async def gen_image_gemini(api_key: str, prompt: str) -> str:
     from google import genai as ggenai
     c = ggenai.Client(api_key=api_key)
-    resp = await asyncio.to_thread(
-        c.models.generate_content,
-        model="gemini-2.5-flash-image-preview",
-        contents=prompt,
-    )
-    for part in resp.candidates[0].content.parts:
-        if getattr(part, "inline_data", None) and getattr(part.inline_data, "data", None):
-            raw = part.inline_data.data
-            b64 = raw if isinstance(raw, str) else base64.b64encode(raw).decode()
-            mime = getattr(part.inline_data, "mime_type", "image/png")
-            return f"data:{mime};base64,{b64}"
+    try:
+        # Intenta usar la versión correcta del modelo de imágenes (Imagen 3)
+        result = await asyncio.to_thread(
+            c.models.generate_images,
+            model='imagen-3.0-generate-002',
+            prompt=prompt,
+            config=dict(
+                number_of_images=1,
+                output_mime_type="image/jpeg",
+                aspect_ratio="16:9"
+            )
+        )
+        for generated_image in result.generated_images:
+            image = generated_image.image
+            b64 = base64.b64encode(image.image_bytes).decode()
+            return f"data:image/jpeg;base64,{b64}"
+    except AttributeError:
+        # Fallback si el SDK antiguo se está utilizando
+        resp = await asyncio.to_thread(
+            c.models.generate_content,
+            model="gemini-2.5-flash",  # No existe flash-image-preview
+            contents=prompt,
+        )
+        raise RuntimeError("La versión actual de SDK de Gemini no soporta generación de imágenes así.")
+    except Exception as e:
+        raise RuntimeError(f"Error Gemini Imagen: {str(e)}")
     raise RuntimeError("Sin imagen de Gemini")
 
 
@@ -409,7 +497,7 @@ PRINCIPIOS (NO NEGOCIABLES):
 4. UN MENSAJE POR SLIDE: el título es una AFIRMACIÓN clara, no un tema. Malo: "Resultados". Bueno: "Duplicamos ingresos en 7 meses".
 5. DATOS AL FRENTE: si el contenido tiene números, créa al menos una slide de tipo `content` o `two-column` destacando las 3-5 métricas clave.
 6. VARIEDAD VISUAL: mezcla layouts. Evita 8 slides seguidas tipo `content`. Usa `quote` para citas textuales, `section` como transiciones, `image-right` cuando hay contraste visual relevante.
-7. IMAGE PROMPTS: descripciones visuales específicas en INGLÉS, estilo editorial fotográfico o ilustración conceptual. Ej: "minimalist aerial photograph of a cargo ship cutting through blue ocean, soft golden hour light, cinematic" — NO: "business meeting".
+7. IMAGE PROMPTS: descripciones visuales en INGLÉS, detalladas y coherentes con el tono visual de la presentación. Incluye: sujeto, composición, iluminación, mood/atmósfera, estilo fotográfico. Para templates oscuros usa "dark, moody, dramatic lighting". Para templates claros usa "bright, airy, clean". Ej: "minimalist aerial photograph of a cargo ship cutting through blue ocean, soft golden hour light, cinematic composition, editorial style" — NO: "business meeting". NUNCA incluyas texto en la imagen.
 
 FORMATO DE SALIDA — JSON PURO (sin markdown, sin comentarios):
 {
@@ -417,7 +505,7 @@ FORMATO DE SALIDA — JSON PURO (sin markdown, sin comentarios):
   "description": "Subtítulo de 1 frase que resume la tesis",
   "slides": [
     {
-      "layout": "title | content | two-column | image-right | quote | section",
+      "layout": "title | content | two-column | image-right | quote | section | data-grid",
       "title": "Afirmación clara y específica",
       "subtitle": "opcional — contexto o fecha",
       "bullets": ["Bullet con dato o ejemplo concreto (10-16 palabras)", "Otro bullet con sustancia"],
@@ -435,6 +523,7 @@ REGLAS DE LAYOUT:
 - `two-column`: cuando comparas dos ideas (antes/después, A vs B, problema/solución). Usa "body" con formato "IZQUIERDA: ... | DERECHA: ...".
 - `image-right`: cuando la imagen aporta contraste visual fuerte al mensaje. 3-4 bullets cortos.
 - `quote`: cita textual del documento o afirmación impactante. El texto va en "body".
+- `data-grid`: para mostrar 2-4 métricas/KPIs clave. Cada bullet = "Label: Valor". Máximo 4 bullets.
 
 CANTIDAD: respeta `num_slides` ± 1. Si piden 8, entrega entre 7 y 9 (nunca menos de 6, nunca más de 15).
 
@@ -448,18 +537,52 @@ Recuerda: prefiero 7 slides memorables a 12 slides genéricas. Si el contenido d
 def _extract_json(raw: str) -> dict:
     raw = raw.strip()
     # strip markdown fences
-    raw = re.sub(r"^```(?:json)?", "", raw).strip()
-    raw = re.sub(r"```$", "", raw).strip()
+    raw = re.sub(r"^```(?:json)?\s*", "", raw).strip()
+    raw = re.sub(r"\s*```$", "", raw).strip()
     # find first '{' and last '}'
-    s = raw.find("{"); e = raw.rfind("}")
+    s = raw.find("{")
+    e = raw.rfind("}")
     if s >= 0 and e > s:
         raw = raw[s:e+1]
-    return json.loads(raw)
+        
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as err:
+        import json5
+        # Fallback to json5 if available, or just try to clean some common errors like trailing commas or unescaped newlines
+        try:
+            return json5.loads(raw)
+        except Exception:
+            # Simple cleanup for strict json
+            raw = re.sub(r",(\s*[}\]])", r"\1", raw) # remove trailing commas
+            return json.loads(raw)
 
 
 @api.post("/presentations/generate")
 async def presentations_generate(req: GenerateRequest, user: User = Depends(get_current_user)):
-    user_prompt = f"""Idioma: {req.language}
+    """Creates a 'generating' placeholder presentation, returns immediately with the id,
+    and runs the LLM + image generation entirely in the background.
+    Frontend polls /presentations/{id} until status='ready' (or 'error').
+    This avoids proxy timeouts for slow LLMs (Claude 60-120s)."""
+
+    placeholder = Presentation(
+        user_id=user.user_id,
+        title=req.title or "Generando presentación…",
+        description="",
+        template=req.template,
+        primary_color=req.primary_color,
+        accent_color=req.accent_color,
+        background_color=req.background_color,
+        text_color=req.text_color,
+        slides=[],
+        status="generating",
+    )
+    await db.presentations.insert_one(placeholder.model_dump())
+    pid = placeholder.presentation_id
+
+    async def _bg_generate():
+        try:
+            user_prompt = f"""Idioma: {req.language}
 Tono: {req.tone}
 Número de slides: {req.num_slides}
 Título sugerido: {req.title or '(inferir del contenido)'}
@@ -467,86 +590,86 @@ Título sugerido: {req.title or '(inferir del contenido)'}
 CONTENIDO DEL USUARIO:
 {req.content[:60000]}
 """
-    try:
-        raw = await run_llm(req.llm, SYSTEM_PROMPT_ES, user_prompt)
-        data = _extract_json(raw)
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=502, detail="La IA devolvió un JSON inválido. Intenta de nuevo.")
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Error IA: {str(e)[:300]}")
+            try:
+                raw = await run_llm(req.llm, SYSTEM_PROMPT_ES, user_prompt)
+                data = _extract_json(raw)
+            except Exception as e:
+                # Truncate raw context in error just in case
+                raise RuntimeError(f"La IA devolvió JSON inválido: {str(e)} - RAW: {raw[:50]}")
+            except Exception as e:
+                raise RuntimeError(f"Error IA: {str(e)[:300]}")
 
-    slides: List[Slide] = []
-    for s in data.get("slides", []):
-        if not isinstance(s, dict):
-            continue
-        slides.append(Slide(
-            layout=(s.get("layout") or "content"),
-            title=(s.get("title") or ""),
-            subtitle=(s.get("subtitle") or ""),
-            bullets=[str(b) for b in (s.get("bullets") or []) if b],
-            body=(s.get("body") or ""),
-            image_prompt=(s.get("image_prompt") or ""),
-            notes=(s.get("notes") or ""),
-        ))
-
-    # Unsplash is FAST (no outbound call, just URL). Do it synchronously to return with images.
-    if req.image_source == "unsplash":
-        for s in slides:
-            if s.image_prompt and s.layout not in ("title", "section", "quote"):
-                try:
-                    s.image_url = await fetch_unsplash(s.image_prompt)
-                except Exception:
-                    pass
-
-    pres = Presentation(
-        user_id=user.user_id,
-        title=data.get("title", req.title or "Presentación sin título"),
-        description=data.get("description", ""),
-        template=req.template,
-        primary_color=req.primary_color,
-        accent_color=req.accent_color,
-        background_color=req.background_color,
-        text_color=req.text_color,
-        slides=slides,
-    )
-
-    await db.presentations.insert_one(pres.model_dump())
-
-    # AI images are SLOW (~15s each via gpt-image-1). Launch in background so the client
-    # can navigate to the editor immediately; Editor polls until images populate.
-    if req.image_source == "ai" and req.image_llm:
-        pid = pres.presentation_id
-        image_llm = req.image_llm
-        target_ids = [s.id for s in slides if s.image_prompt and s.layout not in ("title", "section", "quote")]
-
-        async def _bg_generate_images():
-            for slide_id in target_ids:
-                # re-read current state so we can find prompt and write url
-                doc = await db.presentations.find_one({"presentation_id": pid}, {"_id": 0})
-                if not doc:
-                    return
-                slide = next((x for x in doc["slides"] if x["id"] == slide_id), None)
-                if not slide or not slide.get("image_prompt"):
+            built_slides: List[Slide] = []
+            for s in data.get("slides", []):
+                if not isinstance(s, dict):
                     continue
-                try:
-                    if image_llm.provider == "openai":
-                        url = await asyncio.wait_for(gen_image_openai(image_llm.api_key, slide["image_prompt"]), timeout=45)
-                    elif image_llm.provider == "gemini":
-                        url = await asyncio.wait_for(gen_image_gemini(image_llm.api_key, slide["image_prompt"]), timeout=45)
-                    else:
+                built_slides.append(Slide(
+                    layout=(s.get("layout") or "content"),
+                    title=(s.get("title") or ""),
+                    subtitle=(s.get("subtitle") or ""),
+                    bullets=[str(b) for b in (s.get("bullets") or []) if b],
+                    body=(s.get("body") or ""),
+                    image_prompt=(s.get("image_prompt") or ""),
+                    notes=(s.get("notes") or ""),
+                ))
+
+            # Attach unsplash URLs synchronously within the bg task (fast)
+            if req.image_source == "unsplash":
+                for slide in built_slides:
+                    if slide.image_prompt and slide.layout not in ("title", "section", "quote"):
+                        try:
+                            slide.image_url = await fetch_unsplash(slide.image_prompt)
+                        except Exception:
+                            pass
+
+            # Persist the slides + status so client can render immediately
+            slides_dict = [s.model_dump() for s in built_slides]
+            await db.presentations.update_one(
+                {"presentation_id": pid},
+                {"$set": {
+                    "title": data.get("title", req.title or "Presentación"),
+                    "description": data.get("description", ""),
+                    "slides": slides_dict,
+                    "status": "ready",
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }},
+            )
+
+            # AI images — continue in bg after status=ready so the user sees slides right away
+            if req.image_source == "ai" and req.image_llm:
+                for slide in built_slides:
+                    if not slide.image_prompt or slide.layout in ("title", "section", "quote"):
                         continue
-                except Exception as e:
-                    logger.warning(f"bg image fail for slide {slide_id}: {e}")
-                    continue
-                # update just this slide's image_url
-                await db.presentations.update_one(
-                    {"presentation_id": pid, "slides.id": slide_id},
-                    {"$set": {"slides.$.image_url": url, "updated_at": datetime.now(timezone.utc).isoformat()}},
-                )
+                    try:
+                        if req.image_llm.provider == "openai":
+                            url = await asyncio.wait_for(
+                                gen_image_openai(req.image_llm.api_key, slide.image_prompt),
+                                timeout=45,
+                            )
+                        elif req.image_llm.provider == "gemini":
+                            url = await asyncio.wait_for(
+                                gen_image_gemini(req.image_llm.api_key, slide.image_prompt),
+                                timeout=45,
+                            )
+                        else:
+                            continue
+                    except Exception as e:
+                        logger.warning(f"bg image fail slide {slide.id}: {e}")
+                        continue
+                    await db.presentations.update_one(
+                        {"presentation_id": pid, "slides.id": slide.id},
+                        {"$set": {"slides.$.image_url": url, "updated_at": datetime.now(timezone.utc).isoformat()}},
+                    )
 
-        asyncio.create_task(_bg_generate_images())
+        except Exception as e:
+            logger.exception(f"bg generation failed for {pid}")
+            await db.presentations.update_one(
+                {"presentation_id": pid},
+                {"$set": {"status": "error", "error_message": str(e)[:300], "updated_at": datetime.now(timezone.utc).isoformat()}},
+            )
 
-    return pres.model_dump()
+    asyncio.create_task(_bg_generate())
+    return placeholder.model_dump()
 
 
 @api.get("/presentations")
@@ -621,6 +744,149 @@ async def regenerate_slide(req: RegenerateSlideRequest, user: User = Depends(get
         {"$set": {"slides": doc["slides"], "updated_at": datetime.now(timezone.utc).isoformat()}},
     )
     return target
+
+
+# ============================== AI TEMPLATE GENERATION ==============================
+
+class TemplateGenerateRequest(BaseModel):
+    description: str
+    llm: LLMConfig
+
+@api.post("/templates/generate")
+async def generate_template(req: TemplateGenerateRequest, user: User = Depends(get_current_user)):
+    """Use the content LLM to generate a custom color palette from a text description."""
+    sys = """Eres un experto diseñador gráfico. El usuario describe un estilo visual y tú generas una paleta de colores coherente para una presentación.
+
+Responde SOLO JSON puro (sin markdown, sin explicaciones):
+{
+  "name": "Nombre corto y memorable para la plantilla (1-2 palabras, en español)",
+  "desc": "Descripción breve del estilo (máx 4 palabras)",
+  "primary": "#HEXCOLOR (color principal de acentos y títulos)",
+  "accent": "#HEXCOLOR (color secundario complementario)",
+  "bg": "#HEXCOLOR (color de fondo de las slides)",
+  "text": "#HEXCOLOR (color del texto principal — debe contrastar bien con bg)"
+}
+
+REGLAS:
+- Los colores deben ser armoniosos y profesionales.
+- bg y text DEBEN tener contraste suficiente para legibilidad (ratio ≥ 4.5:1).
+- Si piden algo oscuro, bg debe ser oscuro y text claro.
+- Si piden algo claro, bg debe ser claro y text oscuro.
+- primary y accent deben ser vibrantes y distinguibles entre sí.
+- No uses colores genéricos. Piensa como un director de arte de Pentagram."""
+
+    user_prompt = f"Genera una plantilla con este estilo: {req.description}"
+    try:
+        raw = await run_llm(req.llm, sys, user_prompt)
+        data = _extract_json(raw)
+        # Validate required fields
+        for k in ("name", "primary", "accent", "bg", "text"):
+            if k not in data:
+                raise ValueError(f"Falta campo: {k}")
+        return {"template": data}
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=502, detail="La IA devolvió JSON inválido")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)[:300])
+
+
+# ============================== SMART IMAGE FOR SLIDE ==============================
+
+class SlideImageRequest(BaseModel):
+    slide: dict
+    template: dict  # primary_color, background_color, text_color
+    custom_prompt: str = ""
+    content_llm: LLMConfig
+    image_source: str = "unsplash"
+    image_llm: Optional[LLMConfig] = None
+
+@api.post("/images/generate-for-slide")
+async def generate_image_for_slide(req: SlideImageRequest, user: User = Depends(get_current_user)):
+    """Generate an optimized image for a specific slide, using the content LLM to craft
+    a context-aware prompt, then routing to the selected image source."""
+
+    # Step 1: Craft an optimized image prompt using the content LLM
+    is_dark = False
+    try:
+        h = (req.template.get("background_color", "#FFFFFF")).lstrip("#")
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        is_dark = (r * 0.299 + g * 0.587 + b * 0.114) < 128
+    except Exception:
+        pass
+
+    mood = "dark, moody, dramatic" if is_dark else "bright, airy, clean"
+    primary_color = req.template.get("primary_color", "#2563EB")
+
+    sys_prompt = f"""You are an expert at crafting image search queries and AI image prompts.
+Generate a SINGLE optimized image prompt in English based on the slide content and visual context.
+
+Template mood: {mood}
+Primary accent color: {primary_color}
+Style: editorial, high-quality, professional presentation imagery
+
+Rules:
+- Output ONLY the prompt text, no JSON, no explanation
+- Be specific: describe composition, lighting, color mood, subject
+- For stock photos: use descriptive keywords
+- For AI generation: add style descriptors (cinematic, minimalist, editorial)
+- NEVER include text/words in the image
+- Match the mood of the template colors
+- Keep it under 100 words"""
+
+    slide_context = f"""Slide title: {req.slide.get('title', '')}
+Slide subtitle: {req.slide.get('subtitle', '')}
+Slide bullets: {', '.join(req.slide.get('bullets', []))}
+Slide body: {req.slide.get('body', '')}
+User's custom instruction: {req.custom_prompt or '(none - auto-generate based on content)'}
+Original image prompt: {req.slide.get('image_prompt', '')}"""
+
+    try:
+        optimized_prompt = await run_llm(req.content_llm, sys_prompt, slide_context)
+        optimized_prompt = optimized_prompt.strip().strip('"').strip("'")
+    except Exception as e:
+        logger.warning(f"LLM prompt optimization failed: {e}")
+        optimized_prompt = req.custom_prompt or req.slide.get("image_prompt", "abstract professional background")
+
+    # Step 2: Generate the image using the optimized prompt
+    try:
+        if req.image_source == "unsplash":
+            url = await fetch_unsplash(optimized_prompt)
+        elif req.image_source == "ai" and req.image_llm:
+            if req.image_llm.provider == "openai":
+                url = await asyncio.wait_for(gen_image_openai(req.image_llm.api_key, optimized_prompt), timeout=60)
+            elif req.image_llm.provider == "gemini":
+                url = await asyncio.wait_for(gen_image_gemini(req.image_llm.api_key, optimized_prompt), timeout=60)
+            else:
+                raise HTTPException(status_code=400, detail="Proveedor de imágenes no soportado")
+        else:
+            url = await fetch_unsplash(optimized_prompt)
+
+        return {"url": url, "prompt": optimized_prompt}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)[:300])
+
+
+# ============================== DUPLICATE PRESENTATION ==============================
+
+@api.post("/presentations/{pid}/duplicate")
+async def duplicate_presentation(pid: str, user: User = Depends(get_current_user)):
+    doc = await db.presentations.find_one({"presentation_id": pid, "user_id": user.user_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="No encontrada")
+    new_id = f"pres_{uuid.uuid4().hex[:10]}"
+    new_doc = {**doc}
+    new_doc["presentation_id"] = new_id
+    new_doc["title"] = doc["title"] + " (copia)"
+    new_doc["created_at"] = datetime.now(timezone.utc).isoformat()
+    new_doc["updated_at"] = datetime.now(timezone.utc).isoformat()
+    # Give each slide a new id
+    for s in new_doc.get("slides", []):
+        s["id"] = str(uuid.uuid4())
+    await db.presentations.insert_one(new_doc)
+    return {"presentation_id": new_id, "title": new_doc["title"]}
+
 
 # ============================== EXPORT ==============================
 
@@ -821,12 +1087,18 @@ app.include_router(api)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=[
+        "https://roka-presento.web.app",
+        "https://roka-presento.firebaseapp.com",
+        "https://roka-case-suite.web.app",
+        "http://localhost:3000",
+        "http://localhost:5173",
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()
+@app.get("/health")
+async def health():
+    return {"status": "ok"}

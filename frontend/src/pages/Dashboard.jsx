@@ -1,15 +1,38 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api } from "../lib/api";
+import { api, API_BASE } from "../lib/api";
 import Navbar from "../components/Navbar";
 import AIKeyModal from "../components/AIKeyModal";
 import { Button } from "../components/ui/button";
 import { toast } from "sonner";
-import { Plus, FileText, Trash2, Sparkles, ArrowRight } from "lucide-react";
+import { Plus, FileText, Trash2, Sparkles, ArrowRight, Download, ExternalLink, Loader2, Copy } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
 } from "../components/ui/alert-dialog";
+
+function StatusBadge({ status, pendingImages }) {
+  if (status === "generating") {
+    return (
+      <div className="flex items-center gap-1.5 text-[10px] font-medium text-blue-600 bg-blue-50 rounded-full px-2 py-0.5">
+        <Loader2 size={10} className="animate-spin" /> Generando…
+      </div>
+    );
+  }
+  if (status === "error") {
+    return (
+      <div className="text-[10px] font-medium text-red-600 bg-red-50 rounded-full px-2 py-0.5">Error</div>
+    );
+  }
+  if (pendingImages > 0) {
+    return (
+      <div className="flex items-center gap-1.5 text-[10px] font-medium text-amber-600 bg-amber-50 rounded-full px-2 py-0.5">
+        <Loader2 size={10} className="animate-spin" /> {pendingImages} img…
+      </div>
+    );
+  }
+  return null;
+}
 
 export default function Dashboard() {
   const nav = useNavigate();
@@ -37,6 +60,22 @@ export default function Dashboard() {
     } catch (e) {
       toast.error("No se pudo eliminar: " + (e?.response?.data?.detail || e.message));
     }
+  };
+
+  const duplicate = async (e, p) => {
+    e.stopPropagation();
+    try {
+      const { data } = await api.post(`/presentations/${p.presentation_id}/duplicate`);
+      toast.success("Presentación duplicada");
+      load();
+    } catch (err) {
+      toast.error("No se pudo duplicar");
+    }
+  };
+
+  const quickExport = (e, id) => {
+    e.stopPropagation();
+    window.location.href = `${API_BASE}/presentations/${id}/export/pptx`;
   };
 
   return (
@@ -79,42 +118,102 @@ export default function Dashboard() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {items.map((p) => (
-              <div
-                key={p.presentation_id}
-                className="group relative rounded-2xl border border-neutral-200 bg-white overflow-hidden hover:soft-shadow-lg hover:-translate-y-0.5 transition-all cursor-pointer fade-up"
-                onClick={() => nav(`/editor/${p.presentation_id}`)}
-                data-testid={`presentation-card-${p.presentation_id}`}
-              >
+            {items.map((p, idx) => {
+              const pendingImages = (p.slides || []).filter(
+                (s) => s.image_prompt && !s.image_url && !["title", "section", "quote"].includes(s.layout)
+              ).length;
+              const firstSlide = p.slides?.[0];
+
+              return (
                 <div
-                  className="aspect-[16/10] relative overflow-hidden"
-                  style={{ background: p.background_color || "#fff" }}
+                  key={p.presentation_id}
+                  className={`group relative rounded-2xl border border-neutral-200 bg-white overflow-hidden hover:soft-shadow-lg hover:-translate-y-1 transition-all duration-300 cursor-pointer fade-up`}
+                  style={{ animationDelay: `${idx * 0.04}s` }}
+                  onClick={() => nav(`/editor/${p.presentation_id}`)}
+                  data-testid={`presentation-card-${p.presentation_id}`}
                 >
-                  <div className="absolute left-0 top-0 h-full w-1" style={{ background: p.primary_color }}></div>
-                  <div className="p-5 h-full flex flex-col">
-                    <div className="text-[10px] font-mono tracking-widest uppercase mb-auto" style={{ color: p.primary_color, opacity: 0.8 }}>
-                      {new Date(p.created_at).toLocaleDateString("es", { month: "short", year: "numeric" }).toUpperCase()}
-                    </div>
-                    <div className="font-display font-semibold leading-tight line-clamp-3 text-lg" style={{ color: p.text_color }}>
-                      {p.title}
-                    </div>
-                  </div>
-                </div>
-                <div className="p-4 flex items-center justify-between border-t border-neutral-100">
-                  <div className="flex items-center gap-2 text-xs text-neutral-500">
-                    <FileText size={13} />
-                    {p.slides?.length || 0} slides
-                  </div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setDeleteTarget(p); }}
-                    className="opacity-0 group-hover:opacity-100 w-7 h-7 rounded-md flex items-center justify-center text-neutral-400 hover:text-red-600 hover:bg-red-50 transition-all"
-                    data-testid={`delete-${p.presentation_id}`}
+                  {/* Mini slide preview */}
+                  <div
+                    className="aspect-[16/10] relative overflow-hidden"
+                    style={{ background: p.background_color || "#fff" }}
                   >
-                    <Trash2 size={13} />
-                  </button>
+                    {/* Left accent bar */}
+                    <div className="absolute left-0 top-0 h-full w-1" style={{ background: p.primary_color }}></div>
+
+                    {/* Corner decoration */}
+                    <div
+                      className="absolute -right-8 -bottom-8 w-24 h-24 rounded-full blur-2xl opacity-10 group-hover:opacity-20 transition-opacity"
+                      style={{ background: `linear-gradient(135deg, ${p.primary_color}, ${p.accent_color || p.primary_color})` }}
+                    />
+
+                    <div className="p-5 h-full flex flex-col relative z-10">
+                      <div className="flex items-center justify-between mb-auto">
+                        <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: p.primary_color, opacity: 0.8 }}>
+                          {new Date(p.created_at).toLocaleDateString("es", { month: "short", year: "numeric" }).toUpperCase()}
+                        </div>
+                        <StatusBadge status={p.status} pendingImages={pendingImages} />
+                      </div>
+
+                      {/* Title area */}
+                      <div className="mt-auto">
+                        {/* Mini content lines */}
+                        {firstSlide && (
+                          <div className="mb-3 space-y-1">
+                            <div className="h-1 rounded-full" style={{ background: p.text_color, opacity: 0.08, width: "80%" }} />
+                            <div className="h-1 rounded-full" style={{ background: p.text_color, opacity: 0.08, width: "55%" }} />
+                          </div>
+                        )}
+                        <div className="font-display font-semibold leading-tight line-clamp-2 text-lg" style={{ color: p.text_color }}>
+                          {p.title}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Footer */}
+                  <div className="p-4 flex items-center justify-between border-t border-neutral-100">
+                    <div className="flex items-center gap-3 text-xs text-neutral-500">
+                      <span className="flex items-center gap-1.5">
+                        <FileText size={13} />
+                        {p.slides?.length || 0} slides
+                      </span>
+                      {/* Color palette dots */}
+                      <div className="flex gap-0.5">
+                        {[p.primary_color, p.accent_color || p.primary_color, p.background_color].filter(Boolean).map((c, i) => (
+                          <div key={i} className="w-2.5 h-2.5 rounded-full border border-neutral-200" style={{ background: c }} />
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={(e) => quickExport(e, p.presentation_id)}
+                        className="w-7 h-7 rounded-md flex items-center justify-center text-neutral-400 hover:text-blue-600 hover:bg-blue-50 transition-all"
+                        title="Descargar PPTX"
+                        data-testid={`export-${p.presentation_id}`}
+                      >
+                        <Download size={12} />
+                      </button>
+                      <button
+                        onClick={(e) => duplicate(e, p)}
+                        className="w-7 h-7 rounded-md flex items-center justify-center text-neutral-400 hover:text-violet-600 hover:bg-violet-50 transition-all"
+                        title="Duplicar"
+                        data-testid={`duplicate-${p.presentation_id}`}
+                      >
+                        <Copy size={12} />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setDeleteTarget(p); }}
+                        className="w-7 h-7 rounded-md flex items-center justify-center text-neutral-400 hover:text-red-600 hover:bg-red-50 transition-all"
+                        data-testid={`delete-${p.presentation_id}`}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </main>
@@ -125,7 +224,7 @@ export default function Dashboard() {
           <AlertDialogHeader>
             <AlertDialogTitle>¿Eliminar presentación?</AlertDialogTitle>
             <AlertDialogDescription>
-              Vas a eliminar <b>“{deleteTarget?.title}”</b>. Esta acción no se puede deshacer.
+              Vas a eliminar <b>"{deleteTarget?.title}"</b>. Esta acción no se puede deshacer.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

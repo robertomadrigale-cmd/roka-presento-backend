@@ -31,6 +31,12 @@ dist/
 dist
 
 # Environment files (comprehensive coverage)
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
 
 *token.json*
 *credentials.json*
@@ -60,6 +66,7 @@ chainlit.md
 
 # Deployment
 .vercel
+.firebase/
 
 # Data and databases
 agenthub/agents/youtube/db
@@ -77,6 +84,8 @@ agenthub/agents/youtube/db
 .cache/
 
 memory/test_credentials.md
+.claude/
 
 # Mobile development
 android-sdk/
+app.tar.gz
